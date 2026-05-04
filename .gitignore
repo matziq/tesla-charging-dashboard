@@ -1,0 +1,10 @@
+# Source data — not published
+*.xlsx
+*.xls
+*.csv
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
