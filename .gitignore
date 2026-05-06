@@ -3,6 +3,9 @@
 *.xls
 *.csv
 
+# Local backups
+*.bak
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

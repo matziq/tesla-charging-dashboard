@@ -1,557 +1,1075 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="apple-touch-icon" href="./favicon.svg" />
-  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="apple-touch-icon" href="./favicon.svg" />
+  <meta charset="UTF-8">
   <title>Tesla Charging Dashboard</title>
+
+  <!-- DataTables + Chart.js CDN -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     :root {
       --bg: #0b1020;
-      --card: #151a2c;
+      --panel: #111827;
+      --panel-2: #1a2238;
+      --border: #2d3748;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
       --accent: #4fd1c5;
-      --accent-soft: rgba(79, 209, 197, 0.15);
-      --accent-warn: #f6ad55;
-      --text-main: #edf2f7;
-      --text-muted: #a0aec0;
-      --border-subtle: #2d3748;
-      --danger: #f56565;
-      --success: #68d391;
-      --info: #63b3ed;
-      --shadow-soft: 0 18px 40px rgba(0, 0, 0, 0.45);
-      --radius-lg: 14px;
-      --radius-md: 10px;
-      --radius-pill: 999px;
+      --work: #60a5fa;
+      --travel: #f472b6;
     }
 
     * {
       box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
     body {
-      background: radial-gradient(circle at top, #1a2540 0, #050814 55%, #020309 100%);
-      color: var(--text-main);
-      padding: 32px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+      padding: 20px;
+      margin: 0;
     }
 
-    .dashboard {
-      max-width: 1200px;
-      margin: 0 auto;
+    h1 {
+      text-align: center;
+      margin: 0 0 20px;
+      letter-spacing: 0.05em;
     }
 
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      margin-bottom: 24px;
-      gap: 16px;
-    }
-
-    .title-block h1 {
-      font-size: 28px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: #e2e8f0;
-    }
-
-    .title-block p {
-      margin-top: 6px;
-      color: var(--text-muted);
-      font-size: 13px;
-    }
-
-    .badge-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 10px;
-    }
-
-    .badge {
-      padding: 4px 10px;
-      border-radius: var(--radius-pill);
-      font-size: 11px;
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.05rem;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      background: rgba(15, 23, 42, 0.8);
     }
 
-    .badge.accent {
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .filters {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      align-items: flex-end;
+    }
+
+    select,
+    input[type="date"],
+    input[type="text"],
+    button {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:hover {
       border-color: var(--accent);
       color: var(--accent);
-      background: var(--accent-soft);
     }
 
-    .kpi-strip {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 14px;
-      margin-bottom: 24px;
-    }
-
-    .card {
-      background: linear-gradient(145deg, #111827, #050814);
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--border-subtle);
-      padding: 16px 18px;
-      box-shadow: var(--shadow-soft);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .card::before {
-      content: "";
-      position: absolute;
-      inset: -40%;
-      background: radial-gradient(circle at top left, rgba(79, 209, 197, 0.08), transparent 60%);
-      opacity: 0.7;
-      pointer-events: none;
-    }
-
-    .card h2 {
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-    }
-
-    .kpi-value {
-      font-size: 22px;
+    button.primary {
+      background: var(--accent);
+      color: #0b1020;
+      border-color: var(--accent);
       font-weight: 600;
-      margin-bottom: 2px;
     }
 
-    .kpi-sub {
-      font-size: 12px;
-      color: var(--text-muted);
+    button.primary:hover {
+      filter: brightness(1.1);
+      color: #0b1020;
     }
 
-    .kpi-accent {
+    /* KPI cards */
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .kpi {
+      background: var(--panel);
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    .kpi .label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .kpi .value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .kpi.work .value {
+      color: var(--work);
+    }
+
+    .kpi.travel .value {
+      color: var(--travel);
+    }
+
+    .kpi.total .value {
       color: var(--accent);
     }
 
-    .kpi-warn {
-      color: var(--accent-warn);
-    }
-
-    .kpi-danger {
-      color: var(--danger);
-    }
-
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 18px;
-      margin-bottom: 18px;
-    }
-
-    .grid-3 {
-      display: grid;
-      grid-template-columns: 1.1fr 1.1fr 0.9fr;
-      gap: 18px;
-      margin-bottom: 18px;
-    }
-
-    .pill-row {
+    /* Tabs */
+    .tabs {
       display: flex;
+      gap: 4px;
+      margin: 20px 0 12px;
+      border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 8px;
+    }
+
+    .tab {
+      padding: 8px 16px;
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      font-size: 0.95rem;
+    }
+
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab:hover {
+      color: var(--text);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    /* Tables */
+    table.dataTable {
+      background: var(--panel) !important;
+      border-radius: 8px;
+      overflow: hidden;
+      width: 100% !important;
+    }
+
+    table.dataTable thead {
+      background: #1f2937;
+    }
+
+    table.dataTable thead th {
+      color: var(--text) !important;
+      border-bottom: 1px solid var(--border) !important;
+    }
+
+    table.dataTable tbody td {
+      color: var(--text) !important;
+      border-top: 1px solid #1f2937 !important;
+    }
+
+    table.dataTable tfoot th {
+      color: var(--accent) !important;
+      border-top: 2px solid var(--border) !important;
+      background: #0f172a;
+      font-weight: 700;
+    }
+
+    .dataTables_wrapper .dataTables_length,
+    .dataTables_wrapper .dataTables_filter,
+    .dataTables_wrapper .dataTables_info,
+    .dataTables_wrapper .dataTables_paginate {
+      color: var(--text) !important;
+    }
+
+    .dataTables_wrapper .dataTables_paginate .paginate_button {
+      color: var(--text) !important;
+    }
+
+    .dataTables_wrapper .dataTables_paginate .paginate_button.current,
+    .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+      background: var(--accent) !important;
+      color: #0b1020 !important;
+      border-color: var(--accent) !important;
+    }
+
+    .dataTables_wrapper input,
+    .dataTables_wrapper select {
+      background: var(--panel-2) !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border) !important;
+    }
+
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
     }
 
     .pill {
-      font-size: 11px;
-      padding: 4px 9px;
-      border-radius: var(--radius-pill);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      background: rgba(15, 23, 42, 0.9);
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
     }
 
     .pill.work {
-      border-color: var(--success);
-      color: var(--success);
+      background: rgba(96, 165, 250, 0.15);
+      color: var(--work);
     }
 
     .pill.travel {
-      border-color: var(--danger);
-      color: var(--danger);
+      background: rgba(244, 114, 182, 0.15);
+      color: var(--travel);
     }
 
-    .section-title {
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      color: var(--text-muted);
-      margin-bottom: 10px;
+    /* Charts */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 16px;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 6px;
-      font-size: 12px;
+    .chart-container {
+      background: var(--panel);
+      padding: 16px 20px 20px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
     }
 
-    th, td {
-      padding: 6px 4px;
-      text-align: left;
-      border-bottom: 1px solid rgba(45, 55, 72, 0.7);
-    }
-
-    th {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--text-muted);
-    }
-
-    tr:last-child td {
-      border-bottom: none;
-    }
-
-    .tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: var(--radius-pill);
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-    }
-
-    .tag-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 999px;
-      background: var(--accent);
-    }
-
-    .tag.work .tag-dot {
-      background: var(--success);
-    }
-
-    .tag.travel .tag-dot {
-      background: var(--danger);
-    }
-
-    .heatmap {
-      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 11px;
-      background: radial-gradient(circle at top, #111827 0, #020309 70%);
-      border-radius: var(--radius-md);
-      padding: 10px 12px;
-      border: 1px solid var(--border-subtle);
-      max-height: 260px;
-      overflow-y: auto;
-      white-space: pre;
-      color: #e2e8f0;
-    }
-
-    .kpi-row {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      margin-top: 6px;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    .kpi-row strong {
-      color: var(--text-main);
-    }
-
-    .chip-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 6px;
-    }
-
-    .chip {
-      font-size: 11px;
-      padding: 4px 8px;
-      border-radius: var(--radius-pill);
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-    }
-
-    .chip.primary {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-
-    .chip.warn {
-      border-color: var(--accent-warn);
-      color: var(--accent-warn);
-    }
-
-    .chip.danger {
-      border-color: var(--danger);
-      color: var(--danger);
+    .chart-container canvas {
+      max-height: 320px;
     }
 
     .footer-note {
-      margin-top: 10px;
-      font-size: 11px;
-      color: var(--text-muted);
-      opacity: 0.8;
-    }
-
-    @media (max-width: 900px) {
-      body {
-        padding: 18px;
-      }
-      .kpi-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-      .grid-2, .grid-3 {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 600px) {
-      .kpi-strip {
-        grid-template-columns: 1fr;
-      }
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-align: center;
+      margin-top: 24px;
     }
   </style>
 </head>
+
 <body>
-  <div class="dashboard">
-    <!-- Header -->
-    <div class="header">
-      <div class="title-block">
-        <h1>TESLA CHARGING DASHBOARD</h1>
-        <p>Fleet usage, work vs travel, and route behavior for Aurora &amp; Cherry Bomb · Jan–May 2026</p>
-        <div class="badge-row">
-          <span class="badge accent">Live from Tesla export</span>
-          <span class="badge">2 vehicles</span>
-          <span class="badge">75 sessions</span>
-          <span class="badge">Phoenix‑based routes</span>
-        </div>
-      </div>
-      <div>
-        <div class="tag">
-          <span class="tag-dot"></span>
-          <span>Work / Travel classification locked</span>
-        </div>
-      </div>
+  <h1>🚗 Tesla Charging Dashboard — Tax Tracker</h1>
+
+  <!-- KPI cards (filtered totals) -->
+  <div class="kpis" id="kpis">
+    <div class="kpi total">
+      <div class="label">Sessions</div>
+      <div class="value" id="kpiSessions">–</div>
     </div>
-
-    <!-- KPI Strip -->
-    <div class="kpi-strip">
-      <div class="card">
-        <h2>Total Cost</h2>
-        <div class="kpi-value kpi-accent">$976.26</div>
-        <div class="kpi-sub">Across 2,346.35 kWh · 75 sessions</div>
-      </div>
-      <div class="card">
-        <h2>Work vs Travel Cost</h2>
-        <div class="kpi-value">
-          <span class="kpi-accent">30%</span> · <span class="kpi-danger">70%</span>
-        </div>
-        <div class="kpi-sub">Work: $289.62 · Travel: $686.64</div>
-      </div>
-      <div class="card">
-        <h2>Peak Month</h2>
-        <div class="kpi-value kpi-warn">April 2026</div>
-        <div class="kpi-sub">1,177.18 kWh · $515.90</div>
-      </div>
-      <div class="card">
-        <h2>Most Used Charger</h2>
-        <div class="kpi-value">Casa Grande AZ</div>
-        <div class="kpi-sub">9 sessions · core dairy route hub</div>
-      </div>
+    <div class="kpi total">
+      <div class="label">Total kWh</div>
+      <div class="value" id="kpiKwh">–</div>
     </div>
-
-    <!-- Work vs Travel + Monthly Trend -->
-    <div class="grid-2">
-      <div class="card">
-        <h2>Work vs Travel Summary</h2>
-        <div class="kpi-row">
-          <div><strong>Work Charging</strong></div>
-          <div>kWh: <span class="kpi-accent">685.50</span> · Cost: <span class="kpi-accent">$289.62</span></div>
-          <div>Share of total cost: <span class="kpi-accent">29.7%</span></div>
-          <div>Primary use: Phoenix metro + dairy territory</div>
-        </div>
-        <div class="kpi-row" style="margin-top: 10px;">
-          <div><strong>Travel Charging</strong></div>
-          <div>kWh: <span class="kpi-danger">1,660.85</span> · Cost: <span class="kpi-danger">$686.64</span></div>
-          <div>Share of total cost: <span class="kpi-danger">70.3%</span></div>
-          <div>Primary use: Long‑distance, multi‑state routes</div>
-        </div>
-        <div class="pill-row" style="margin-top: 12px;">
-          <span class="pill work">Work = Phoenix metro + Casa Grande + Gila Bend</span>
-          <span class="pill travel">Travel = All other chargers</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Monthly Charging Trend</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Month</th>
-              <th>kWh</th>
-              <th>Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Jan 2026</td>
-              <td>130.27</td>
-              <td>$59.57</td>
-            </tr>
-            <tr>
-              <td>Feb 2026</td>
-              <td>407.14</td>
-              <td>$160.27</td>
-            </tr>
-            <tr>
-              <td>Mar 2026</td>
-              <td>616.35</td>
-              <td>$232.20</td>
-            </tr>
-            <tr>
-              <td>Apr 2026</td>
-              <td>1,177.18</td>
-              <td>$515.90</td>
-            </tr>
-            <tr>
-              <td>May 2026</td>
-              <td>15.41</td>
-              <td>$8.32</td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="footer-note">
-          April’s spike is driven by long multi‑state travel runs on Cherry Bomb.
-        </div>
-      </div>
+    <div class="kpi total">
+      <div class="label">Total Cost</div>
+      <div class="value" id="kpiCost">–</div>
     </div>
-
-    <!-- Vehicle Breakdown + Route Insights + KPIs -->
-    <div class="grid-3">
-      <div class="card">
-        <h2>Vehicle Breakdown</h2>
-        <div class="section-title">Aurora</div>
-        <div class="kpi-row">
-          <div>Work kWh: <span class="kpi-accent">119.70</span> · Cost: <span class="kpi-accent">$55.65</span></div>
-          <div>Travel: <span class="kpi-sub">None recorded in this period</span></div>
-          <div>Pattern: Local dairy + Phoenix metro routes</div>
-        </div>
-        <div class="section-title" style="margin-top: 12px;">Cherry Bomb</div>
-        <div class="kpi-row">
-          <div>Work kWh: <span class="kpi-accent">565.80</span> · Cost: <span class="kpi-accent">$233.97</span></div>
-          <div>Travel kWh: <span class="kpi-danger">1,660.85</span> · Cost: <span class="kpi-danger">$686.64</span></div>
-          <div>Pattern: Heavy long‑distance + backup dairy work</div>
-        </div>
-        <div class="chip-row">
-          <span class="chip primary">Aurora = primary dairy workhorse</span>
-          <span class="chip danger">Cherry Bomb = long‑haul specialist</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Route Insights</h2>
-        <div class="section-title">Work Routes (Dairy Territory)</div>
-        <ul class="kpi-row" style="list-style: none; padding-left: 0;">
-          <li>Chandler · Goodyear · Casa Grande · Tempe · Gila Bend · Mesa</li>
-          <li>Predictable loop ideal for cost forecasting and scheduling.</li>
-        </ul>
-        <div class="section-title" style="margin-top: 12px;">Travel Routes (Long‑Distance)</div>
-        <ul class="kpi-row" style="list-style: none; padding-left: 0;">
-          <li><strong>West:</strong> Camarillo, Redlands, West Covina, Indio, El Centro (CA)</li>
-          <li><strong>North:</strong> St George, Cedar City, Scipio, Tremonton (UT)</li>
-          <li><strong>NE:</strong> Frisco, Rifle, Grand Junction, Parachute, Kremmling (CO)</li>
-          <li><strong>NW:</strong> Moapa, Ely, Wells, Mesquite, Boulder City (NV)</li>
-        </ul>
-        <div class="chip-row">
-          <span class="chip">AZ ↔ CA corridor via Quartzsite &amp; Ehrenberg</span>
-          <span class="chip">AZ ↔ CO corridor via UT &amp; NV</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Key KPIs</h2>
-        <div class="kpi-row">
-          <div><strong>Most Expensive Session</strong></div>
-          <div>Cherry Bomb · Indio, CA · <span class="kpi-danger">$26.35</span></div>
-        </div>
-        <div class="kpi-row">
-          <div><strong>Work / Travel Cost Ratio</strong></div>
-          <div><span class="kpi-accent">30%</span> work · <span class="kpi-danger">70%</span> travel</div>
-        </div>
-        <div class="kpi-row">
-          <div><strong>Core Work Hubs</strong></div>
-          <div>Casa Grande (9) · Chandler N 54th (8) · Goodyear (6)</div>
-        </div>
-        <div class="kpi-row">
-          <div><strong>Travel Anchors</strong></div>
-          <div>Flagstaff · Kingman · Moapa · Quartzsite · Yuma</div>
-        </div>
-      </div>
+    <div class="kpi total">
+      <div class="label">Avg $/kWh</div>
+      <div class="value" id="kpiPerKwh">–</div>
     </div>
+    <div class="kpi work">
+      <div class="label">Work Cost</div>
+      <div class="value" id="kpiWork">–</div>
+    </div>
+    <div class="kpi travel">
+      <div class="label">Travel Cost</div>
+      <div class="value" id="kpiTravel">–</div>
+    </div>
+  </div>
 
-    <!-- Heatmap -->
-    <div class="card">
-      <h2>Charger Frequency Heatmap</h2>
-      <div class="heatmap">
-Casa Grande AZ           ██████████  (9)
-Chandler AZ - N 54th St  ████████    (8)
-Goodyear AZ              ██████      (6)
-Tempe AZ                 ████        (4)
-Flagstaff AZ             ███         (3)
-Kingman AZ - W Andy Devine ███       (3)
-Moapa NV                 ███         (3)
-Quartzsite AZ            ██          (2)
-Yuma AZ                  ██          (2)
-Parachute CO             ██          (2)
-Tucson AZ                ██          (2)
-White Hills AZ           ██          (2)
-West Covina CA           ██          (2)
-Boulder City NV          ██          (2)
-Wickenburg AZ            ██          (2)
-Ehrenberg AZ             ██          (2)
-Gila Bend AZ             ██          (2)
-Kayenta AZ               ██          (2)
-Moab UT                  ██          (2)
-Mesa AZ - W Guadalupe Rd █           (1)
-Wells NV                 █           (1)
-Ely NV                   █           (1)
-Tremonton UT             █           (1)
-Cedar City UT            █           (1)
-St George UT             █           (1)
-Mesquite NV              █           (1)
-Indio CA                 █           (1)
-Camarillo CA             █           (1)
-Redlands CA              █           (1)
-Scipio UT                █           (1)
-Farr West UT             █           (1)
-Chandler AZ - E Pecos Rd █           (1)
-Grand Junction CO        █           (1)
-El Centro CA             █           (1)
-Rifle CO                 █           (1)
-Frisco CO                █           (1)
-Kremmling CO             █           (1)
-Idaho Springs CO         █           (1)
-Blanding UT              █           (1)
-Cordes Lakes AZ          █           (1)
+  <!-- FILTERS -->
+  <div class="filters">
+    <label>Category
+      <select id="filterCategory">
+        <option value="">All</option>
+        <option value="WORK">Work</option>
+        <option value="TRAVEL">Travel</option>
+      </select>
+    </label>
+    <label>Vehicle
+      <select id="filterVehicle">
+        <option value="">All</option>
+      </select>
+    </label>
+    <label>State
+      <select id="filterState">
+        <option value="">All</option>
+      </select>
+    </label>
+    <label>Location
+      <select id="filterLocation">
+        <option value="">All</option>
+      </select>
+    </label>
+    <label>Start date<input type="date" id="startDate"></label>
+    <label>End date<input type="date" id="endDate"></label>
+    <label>Quick range
+      <select id="quickRange">
+        <option value="">Custom</option>
+        <option value="ytd">Year to date</option>
+        <option value="lastyear">Last year</option>
+        <option value="last30">Last 30 days</option>
+        <option value="last90">Last 90 days</option>
+        <option value="thismonth">This month</option>
+        <option value="lastmonth">Last month</option>
+      </select>
+    </label>
+    <label>Search<input type="text" id="filterSearch" placeholder="Free text…"></label>
+    <button id="resetFilters">Reset</button>
+    <button id="exportCsv" class="primary">Export CSV</button>
+    <button id="printPage">Print</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="detail">Detail</button>
+    <button class="tab" data-tab="byLocation">By Location</button>
+    <button class="tab" data-tab="byVehicle">By Vehicle</button>
+    <button class="tab" data-tab="byCategory">By Category</button>
+    <button class="tab" data-tab="byState">By State</button>
+    <button class="tab" data-tab="byMonth">By Month</button>
+    <button class="tab" data-tab="charts">Charts</button>
+  </div>
+
+  <!-- DETAIL -->
+  <div class="tab-panel active" id="panel-detail">
+    <table id="chargesTable" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Vehicle</th>
+          <th>Location</th>
+          <th>State</th>
+          <th class="num">kWh</th>
+          <th class="num">Cost</th>
+          <th class="num">$/kWh</th>
+          <th>Category</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr>
+          <th colspan="4" style="text-align:right">Filtered totals:</th>
+          <th class="num" id="footKwh">0</th>
+          <th class="num" id="footCost">$0.00</th>
+          <th class="num" id="footPerKwh">–</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- BY LOCATION -->
+  <div class="tab-panel" id="panel-byLocation">
+    <table id="locTable" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>Location</th>
+          <th>State</th>
+          <th class="num">Sessions</th>
+          <th class="num">kWh</th>
+          <th class="num">Cost</th>
+          <th class="num">$/kWh</th>
+          <th class="num">First</th>
+          <th class="num">Last</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr>
+          <th colspan="2">Totals</th>
+          <th class="num" id="locFootSessions">0</th>
+          <th class="num" id="locFootKwh">0</th>
+          <th class="num" id="locFootCost">$0.00</th>
+          <th colspan="3"></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- BY VEHICLE -->
+  <div class="tab-panel" id="panel-byVehicle">
+    <table id="vehTable" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>Vehicle</th>
+          <th class="num">Sessions</th>
+          <th class="num">kWh</th>
+          <th class="num">Cost</th>
+          <th class="num">Work $</th>
+          <th class="num">Travel $</th>
+          <th class="num">$/kWh</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr>
+          <th>Totals</th>
+          <th class="num" id="vehFootSessions">0</th>
+          <th class="num" id="vehFootKwh">0</th>
+          <th class="num" id="vehFootCost">$0.00</th>
+          <th class="num" id="vehFootWork">$0.00</th>
+          <th class="num" id="vehFootTravel">$0.00</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- BY CATEGORY -->
+  <div class="tab-panel" id="panel-byCategory">
+    <table id="catTable" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th class="num">Sessions</th>
+          <th class="num">kWh</th>
+          <th class="num">Cost</th>
+          <th class="num">% of Cost</th>
+          <th class="num">$/kWh</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr>
+          <th>Totals</th>
+          <th class="num" id="catFootSessions">0</th>
+          <th class="num" id="catFootKwh">0</th>
+          <th class="num" id="catFootCost">$0.00</th>
+          <th class="num">100%</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- BY STATE -->
+  <div class="tab-panel" id="panel-byState">
+    <table id="stateTable" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>State</th>
+          <th class="num">Sessions</th>
+          <th class="num">kWh</th>
+          <th class="num">Cost</th>
+          <th class="num">$/kWh</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr>
+          <th>Totals</th>
+          <th class="num" id="stateFootSessions">0</th>
+          <th class="num" id="stateFootKwh">0</th>
+          <th class="num" id="stateFootCost">$0.00</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- BY MONTH -->
+  <div class="tab-panel" id="panel-byMonth">
+    <table id="monthTable" class="display" style="width:100%">
+      <thead>
+        <tr>
+          <th>Month</th>
+          <th class="num">Sessions</th>
+          <th class="num">kWh</th>
+          <th class="num">Cost</th>
+          <th class="num">Work $</th>
+          <th class="num">Travel $</th>
+          <th class="num">$/kWh</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr>
+          <th>Totals</th>
+          <th class="num" id="monFootSessions">0</th>
+          <th class="num" id="monFootKwh">0</th>
+          <th class="num" id="monFootCost">$0.00</th>
+          <th class="num" id="monFootWork">$0.00</th>
+          <th class="num" id="monFootTravel">$0.00</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="tab-panel" id="panel-charts">
+    <div class="charts-grid">
+      <div class="chart-container">
+        <h2>Top Locations by Cost</h2><canvas id="chargerChart"></canvas>
       </div>
-      <div class="footer-note">
-        Taller bars = more frequent chargers. Casa Grande &amp; Chandler N 54th are your core operational anchors.
+      <div class="chart-container">
+        <h2>Monthly kWh & Cost</h2><canvas id="monthlyChart"></canvas>
+      </div>
+      <div class="chart-container">
+        <h2>Cost by Category</h2><canvas id="categoryChart"></canvas>
+      </div>
+      <div class="chart-container">
+        <h2>Cost by Vehicle</h2><canvas id="vehicleChart"></canvas>
       </div>
     </div>
   </div>
+
+  <p class="footer-note">All summaries respect the active filters above. Use Export CSV for tax records.</p>
+
+  <script>
+    // ----------------------
+    // EMBEDDED DATA (from RawData sheet)
+    // ----------------------
+    const data = [
+      ["2026-05-01", "Aurora", "Tempe AZ", "AZ", 15.4149, 8.32, "WORK"],
+      ["2026-04-29", "Cherry B", "Quartzsite AZ", "AZ", 23.3613, 10.27, "TRAVEL"],
+      ["2026-04-24", "Aurora", "Mesa AZ - W Guadalupe Rd", "AZ", 11.4235, 4.79, "WORK"],
+      ["2026-04-24", "Cherry B", "Kingman AZ - W Andy Devine", "AZ", 61.5848, 26.48, "TRAVEL"],
+      ["2026-04-24", "Cherry B", "White Hills AZ", "AZ", 18.2181, 7.65, "TRAVEL"],
+      ["2026-04-23", "Cherry B", "Moapa NV", "NV", 36.3574, 15.99, "TRAVEL"],
+      ["2026-04-23", "Cherry B", "Ely NV", "NV", 61.6108, 27.72, "TRAVEL"],
+      ["2026-04-23", "Cherry B", "Wells NV", "NV", 45.5237, 20.48, "TRAVEL"],
+      ["2026-04-21", "Cherry B", "Tremonton UT", "UT", 24.405, 8.78, "TRAVEL"],
+      ["2026-04-21", "Cherry B", "Farr West UT", "UT", 24.7386, 7.66, "TRAVEL"],
+      ["2026-04-21", "Cherry B", "Scipio UT", "UT", 44.5505, 16.03, "TRAVEL"],
+      ["2026-04-21", "Cherry B", "Cedar City UT", "UT", 41.6048, 14.97, "TRAVEL"],
+      ["2026-04-21", "Aurora", "Tempe AZ", "AZ", 8.8846, 4.26, "WORK"],
+      ["2026-04-21", "Cherry B", "Moapa NV", "NV", 45.4768, 20.0, "TRAVEL"],
+      ["2026-04-21", "Cherry B", "White Hills AZ", "AZ", 34.7114, 14.57, "TRAVEL"],
+      ["2026-04-21", "Cherry B", "Wickenburg AZ", "AZ", 5.4351, 2.28, "TRAVEL"],
+      ["2026-04-20", "Cherry B", "Goodyear AZ", "AZ", 12.294, 5.53, "WORK"],
+      ["2026-04-20", "Cherry B", "Casa Grande AZ", "AZ", 28.5496, 12.84, "WORK"],
+      ["2026-04-19", "Cherry B", "Ehrenberg AZ", "AZ", 28.1152, 12.08, "TRAVEL"],
+      ["2026-04-19", "Cherry B", "Ehrenberg AZ", "AZ", 12.596, 5.41, "TRAVEL"],
+      ["2026-04-19", "Cherry B", "Redlands CA", "CA", 38.0179, 18.62, "TRAVEL"],
+      ["2026-04-19", "Cherry B", "West Covina CA", "CA", 21.9109, 10.51, "TRAVEL"],
+      ["2026-04-18", "Cherry B", "Camarillo CA", "CA", 54.2424, 29.83, "TRAVEL"],
+      ["2026-04-17", "Aurora", "Chandler AZ - N 54th St", "AZ", 22.2448, 10.23, "WORK"],
+      ["2026-04-17", "Cherry B", "West Covina CA", "CA", 21.6079, 11.88, "TRAVEL"],
+      ["2026-04-17", "Cherry B", "Indio CA", "CA", 58.5635, 26.35, "TRAVEL"],
+      ["2026-04-17", "Cherry B", "Quartzsite AZ", "AZ", 20.4623, 9.0, "TRAVEL"],
+      ["2026-04-15", "Cherry B", "Kingman AZ - W Andy Devine", "AZ", 53.0988, 22.83, "TRAVEL"],
+      ["2026-04-15", "Cherry B", "Boulder City NV", "NV", 27.898, 11.99, "TRAVEL"],
+      ["2026-04-15", "Cherry B", "Mesquite NV", "NV", 30.426, 13.38, "TRAVEL"],
+      ["2026-04-14", "Cherry B", "St George UT", "UT", 20.1192, 7.24, "TRAVEL"],
+      ["2026-04-14", "Cherry B", "Moapa NV", "NV", 35.3676, 15.56, "TRAVEL"],
+      ["2026-04-14", "Cherry B", "Boulder City NV", "NV", 26.6443, 11.45, "TRAVEL"],
+      ["2026-04-14", "Cherry B", "Kingman AZ - W Andy Devine", "AZ", 23.8579, 10.25, "TRAVEL"],
+      ["2026-04-14", "Cherry B", "Wickenburg AZ", "AZ", 7.9957, 3.83, "TRAVEL"],
+      ["2026-04-13", "Cherry B", "Goodyear AZ", "AZ", 37.412, 16.83, "WORK"],
+      ["2026-04-13", "Cherry B", "Casa Grande AZ", "AZ", 6.756, 3.04, "WORK"],
+      ["2026-04-09", "Cherry B", "Chandler AZ - N 54th St", "AZ", 28.4754, 13.09, "WORK"],
+      ["2026-04-09", "Cherry B", "Chandler AZ - N 54th St", "AZ", 26.1489, 12.02, "WORK"],
+      ["2026-04-09", "Cherry B", "Casa Grande AZ", "AZ", 10.508, 4.72, "WORK"],
+      ["2026-04-09", "Cherry B", "Gila Bend AZ", "AZ", 7.1395, 2.78, "WORK"],
+      ["2026-04-01", "Cherry B", "Chandler AZ - E Pecos Rd", "AZ", 28.8405, 12.68, "WORK"],
+      ["2026-03-31", "Cherry B", "Chandler AZ - N 54th St", "AZ", 32.9684, 15.16, "WORK"],
+      ["2026-03-26", "Cherry B", "Chandler AZ - N 54th St", "AZ", 19.968, 6.38, "WORK"],
+      ["2026-03-25", "Cherry B", "Chandler AZ - N 54th St", "AZ", 15.7059, 6.59, "WORK"],
+      ["2026-03-25", "Cherry B", "Casa Grande AZ", "AZ", 10.2541, 4.3, "WORK"],
+      ["2026-03-24", "Cherry B", "Goodyear AZ", "AZ", 15.1101, 6.34, "WORK"],
+      ["2026-03-23", "Cherry B", "Yuma AZ", "AZ", 45.3732, 18.6, "TRAVEL"],
+      ["2026-03-23", "Cherry B", "El Centro CA", "CA", 36.3065, 15.61, "TRAVEL"],
+      ["2026-03-23", "Cherry B", "Yuma AZ", "AZ", 42.4754, 17.41, "TRAVEL"],
+      ["2026-03-10", "Cherry B", "Tempe AZ", "AZ", 53.3174, 22.39, "WORK"],
+      ["2026-03-06", "Cherry B", "Flagstaff AZ", "AZ", 14.5859, 6.27, "TRAVEL"],
+      ["2026-03-06", "Cherry B", "Flagstaff AZ", "AZ", 31.9774, 13.75, "TRAVEL"],
+      ["2026-03-06", "Cherry B", "Kayenta AZ", "AZ", 54.7325, 23.53, "TRAVEL"],
+      ["2026-03-06", "Cherry B", "Moab UT", "UT", 17.3928, 6.08, "TRAVEL"],
+      ["2026-03-06", "Cherry B", "Grand Junction CO", "CO", 47.6304, 14.28, "TRAVEL"],
+      ["2026-03-06", "Cherry B", "Rifle CO", "CO", 22.6364, 7.01, "TRAVEL"],
+      ["2026-03-05", "Cherry B", "Frisco CO", "CO", 35.3127, 10.94, "TRAVEL"],
+      ["2026-03-05", "Cherry B", "Idaho Springs CO", "CO", 19.8664, 6.35, "TRAVEL"],
+      ["2026-03-01", "Cherry B", "Kremmling CO", "CO", 52.2215, 16.18, "TRAVEL"],
+      ["2026-03-01", "Cherry B", "Parachute CO", "CO", 6.4869, 2.01, "TRAVEL"],
+      ["2026-03-01", "Cherry B", "Parachute CO", "CO", 42.0282, 13.02, "TRAVEL"],
+      ["2026-02-28", "Cherry B", "Moab UT", "UT", 41.2783, 14.44, "TRAVEL"],
+      ["2026-02-28", "Cherry B", "Blanding UT", "UT", 15.8559, 5.7, "TRAVEL"],
+      ["2026-02-28", "Cherry B", "Kayenta AZ", "AZ", 42.619, 18.32, "TRAVEL"],
+      ["2026-02-28", "Cherry B", "Flagstaff AZ", "AZ", 38.978, 16.76, "TRAVEL"],
+      ["2026-02-28", "Cherry B", "Cordes Lakes AZ", "AZ", 13.4585, 5.38, "TRAVEL"],
+      ["2026-02-27", "Cherry B", "Goodyear AZ", "AZ", 9.3414, 3.92, "WORK"],
+      ["2026-02-27", "Cherry B", "Goodyear AZ", "AZ", 14.2301, 5.97, "WORK"],
+      ["2026-02-25", "Cherry B", "Casa Grande AZ", "AZ", 36.761, 11.39, "WORK"],
+      ["2026-02-24", "Cherry B", "Casa Grande AZ", "AZ", 42.828, 13.27, "WORK"],
+      ["2026-02-19", "Cherry B", "Casa Grande AZ", "AZ", 20.54, 6.36, "WORK"],
+      ["2026-02-18", "Cherry B", "Tempe AZ", "AZ", 15.7858, 6.63, "WORK"],
+      ["2026-02-17", "Cherry B", "Chandler AZ - N 54th St", "AZ", 24.3356, 10.22, "WORK"],
+      ["2026-02-07", "Cherry B", "Tucson AZ", "AZ", 39.9169, 18.36, "TRAVEL"],
+      ["2026-02-06", "Cherry B", "Tucson AZ", "AZ", 51.2156, 23.55, "TRAVEL"],
+      ["2026-01-28", "Cherry B", "Casa Grande AZ", "AZ", 35.264, 16.22, "WORK"],
+      ["2026-01-27", "Cherry B", "Chandler AZ - N 54th St", "AZ", 33.2679, 15.3, "WORK"],
+      ["2026-01-22", "Aurora", "Gila Bend AZ", "AZ", 10.8694, 4.67, "WORK"],
+      ["2026-01-21", "Aurora", "Casa Grande AZ", "AZ", 27.0848, 12.45, "WORK"],
+      ["2026-01-09", "Aurora", "Goodyear AZ", "AZ", 23.7809, 10.93, "WORK"]
+    ];
+
+
+    // ----------------------
+    // Helpers
+    // ----------------------
+    const COLS = { DATE: 0, VEHICLE: 1, LOCATION: 2, STATE: 3, KWH: 4, COST: 5, CATEGORY: 6 };
+    const fmtNum = (n, d = 2) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+    const fmtMoney = n => '$' + fmtNum(n, 2);
+    const perKwh = (cost, kwh) => kwh > 0 ? '$' + (cost / kwh).toFixed(4) : '–';
+    const escapeCsv = v => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const todayIso = () => new Date().toISOString().slice(0, 10);
+
+    // Quick-range presets
+    function applyQuickRange(key) {
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = today.getMonth();
+      const pad = n => String(n).padStart(2, '0');
+      const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      let start, end;
+      switch (key) {
+        case 'ytd': start = `${y}-01-01`; end = todayIso(); break;
+        case 'lastyear': start = `${y - 1}-01-01`; end = `${y - 1}-12-31`; break;
+        case 'last30': start = iso(new Date(today.getTime() - 30 * 86400000)); end = todayIso(); break;
+        case 'last90': start = iso(new Date(today.getTime() - 90 * 86400000)); end = todayIso(); break;
+        case 'thismonth': start = `${y}-${pad(m + 1)}-01`; end = todayIso(); break;
+        case 'lastmonth': {
+          const lm = new Date(y, m - 1, 1);
+          const last = new Date(y, m, 0);
+          start = iso(lm); end = iso(last); break;
+        }
+        default: return;
+      }
+      $('#startDate').val(start);
+      $('#endDate').val(end);
+    }
+
+    // ----------------------
+    // Bootstrap
+    // ----------------------
+    $(document).ready(function () {
+      // Populate dynamic filter dropdowns
+      const fillSelect = (id, values) => {
+        const sel = document.getElementById(id);
+        [...new Set(values)].sort().forEach(v => {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = v;
+          sel.appendChild(o);
+        });
+      };
+      fillSelect('filterVehicle', data.map(r => r[COLS.VEHICLE]));
+      fillSelect('filterState', data.map(r => r[COLS.STATE]));
+      fillSelect('filterLocation', data.map(r => r[COLS.LOCATION]));
+
+      // ---- Detail table ----
+      const detailTable = $('#chargesTable').DataTable({
+        data: data.map(r => [
+          r[COLS.DATE], r[COLS.VEHICLE], r[COLS.LOCATION], r[COLS.STATE],
+          r[COLS.KWH], r[COLS.COST],
+          r[COLS.KWH] > 0 ? r[COLS.COST] / r[COLS.KWH] : 0,
+          r[COLS.CATEGORY]
+        ]),
+        order: [[0, 'desc']],
+        pageLength: 25,
+        lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+        columnDefs: [
+          { targets: [4], render: (d, type) => type === 'display' ? fmtNum(d, 4) : d, className: 'num' },
+          { targets: [5], render: (d, type) => type === 'display' ? fmtMoney(d) : d, className: 'num' },
+          { targets: [6], render: (d, type) => type === 'display' ? '$' + Number(d || 0).toFixed(4) : d, className: 'num' },
+          {
+            targets: [7], render: (d, type) => type === 'display'
+              ? `<span class="pill ${String(d).toLowerCase()}">${d}</span>`
+              : d
+          }
+        ]
+      });
+
+      // ---- All filtering happens here (operates on source row data — no orthogonal-data surprises) ----
+      $.fn.dataTable.ext.search.push(function (settings, rowData) {
+        if (settings.nTable.id !== 'chargesTable') return true;
+
+        const date = rowData[COLS.DATE];
+        const vehicle = rowData[COLS.VEHICLE];
+        const location = rowData[COLS.LOCATION];
+        const state = rowData[COLS.STATE];
+        const category = rowData[7]; // category is at index 7 in the detail table
+
+        const fCat = $('#filterCategory').val();
+        const fVeh = $('#filterVehicle').val();
+        const fSt = $('#filterState').val();
+        const fLoc = $('#filterLocation').val();
+        const start = $('#startDate').val();
+        const end = $('#endDate').val();
+        const q = $('#filterSearch').val().trim().toLowerCase();
+
+        if (fCat && category !== fCat) return false;
+        if (fVeh && vehicle !== fVeh) return false;
+        if (fSt && state !== fSt) return false;
+        if (fLoc && location !== fLoc) return false;
+        if (start && date < start) return false;
+        if (end && date > end) return false;
+        if (q) {
+          const hay = [date, vehicle, location, state, category].join(' ').toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      function applyDetailFilters() {
+        detailTable.draw();
+      }
+
+      // ---- Filtered rows helper ----
+      function getFilteredRows() {
+        // Use DataTable's filtered result, but map back to original row shape
+        const rows = [];
+        detailTable.rows({ search: 'applied' }).every(function () {
+          const d = this.data();
+          rows.push([d[0], d[1], d[2], d[3], +d[4], +d[5], d[7]]);
+        });
+        return rows;
+      }
+
+      // ---- Summary tables ----
+      let locDT, vehDT, catDT, stateDT, monDT;
+
+      function renderSummaries() {
+        const rows = getFilteredRows();
+
+        // KPI cards
+        const totalKwh = rows.reduce((a, r) => a + r[COLS.KWH], 0);
+        const totalCost = rows.reduce((a, r) => a + r[COLS.COST], 0);
+        const workCost = rows.filter(r => r[COLS.CATEGORY] === 'WORK').reduce((a, r) => a + r[COLS.COST], 0);
+        const travCost = rows.filter(r => r[COLS.CATEGORY] === 'TRAVEL').reduce((a, r) => a + r[COLS.COST], 0);
+        $('#kpiSessions').text(rows.length);
+        $('#kpiKwh').text(fmtNum(totalKwh, 2));
+        $('#kpiCost').text(fmtMoney(totalCost));
+        $('#kpiPerKwh').text(perKwh(totalCost, totalKwh));
+        $('#kpiWork').text(fmtMoney(workCost));
+        $('#kpiTravel').text(fmtMoney(travCost));
+
+        // Detail footer
+        $('#footKwh').text(fmtNum(totalKwh, 2));
+        $('#footCost').text(fmtMoney(totalCost));
+        $('#footPerKwh').text(perKwh(totalCost, totalKwh));
+
+        // ---- By Location ----
+        const locMap = new Map();
+        rows.forEach(r => {
+          const k = r[COLS.LOCATION] + '||' + r[COLS.STATE];
+          let v = locMap.get(k);
+          if (!v) { v = { loc: r[COLS.LOCATION], state: r[COLS.STATE], n: 0, kwh: 0, cost: 0, first: r[COLS.DATE], last: r[COLS.DATE] }; locMap.set(k, v); }
+          v.n++; v.kwh += r[COLS.KWH]; v.cost += r[COLS.COST];
+          if (r[COLS.DATE] < v.first) v.first = r[COLS.DATE];
+          if (r[COLS.DATE] > v.last) v.last = r[COLS.DATE];
+        });
+        const locRows = [...locMap.values()].map(v => [
+          v.loc, v.state, v.n, +v.kwh.toFixed(4), +v.cost.toFixed(2),
+          v.kwh > 0 ? +(v.cost / v.kwh).toFixed(4) : 0, v.first, v.last
+        ]);
+        if (!locDT) {
+          locDT = $('#locTable').DataTable({
+            data: locRows, order: [[4, 'desc']], pageLength: 25,
+            columnDefs: [
+              { targets: [2], className: 'num' },
+              { targets: [3], className: 'num', render: d => fmtNum(d, 2) },
+              { targets: [4], className: 'num', render: d => fmtMoney(d) },
+              { targets: [5], className: 'num', render: d => d ? '$' + Number(d).toFixed(4) : '–' },
+              { targets: [6, 7], className: 'num' }
+            ]
+          });
+        } else { locDT.clear().rows.add(locRows).draw(); }
+        $('#locFootSessions').text(rows.length);
+        $('#locFootKwh').text(fmtNum(totalKwh, 2));
+        $('#locFootCost').text(fmtMoney(totalCost));
+
+        // ---- By Vehicle ----
+        const vehMap = new Map();
+        rows.forEach(r => {
+          let v = vehMap.get(r[COLS.VEHICLE]);
+          if (!v) { v = { name: r[COLS.VEHICLE], n: 0, kwh: 0, cost: 0, work: 0, travel: 0 }; vehMap.set(r[COLS.VEHICLE], v); }
+          v.n++; v.kwh += r[COLS.KWH]; v.cost += r[COLS.COST];
+          if (r[COLS.CATEGORY] === 'WORK') v.work += r[COLS.COST]; else v.travel += r[COLS.COST];
+        });
+        const vehRows = [...vehMap.values()].map(v => [
+          v.name, v.n, +v.kwh.toFixed(4), +v.cost.toFixed(2),
+          +v.work.toFixed(2), +v.travel.toFixed(2),
+          v.kwh > 0 ? +(v.cost / v.kwh).toFixed(4) : 0
+        ]);
+        if (!vehDT) {
+          vehDT = $('#vehTable').DataTable({
+            data: vehRows, order: [[3, 'desc']], paging: false, searching: false, info: false,
+            columnDefs: [
+              { targets: [1], className: 'num' },
+              { targets: [2], className: 'num', render: d => fmtNum(d, 2) },
+              { targets: [3, 4, 5], className: 'num', render: d => fmtMoney(d) },
+              { targets: [6], className: 'num', render: d => d ? '$' + Number(d).toFixed(4) : '–' }
+            ]
+          });
+        } else { vehDT.clear().rows.add(vehRows).draw(); }
+        $('#vehFootSessions').text(rows.length);
+        $('#vehFootKwh').text(fmtNum(totalKwh, 2));
+        $('#vehFootCost').text(fmtMoney(totalCost));
+        $('#vehFootWork').text(fmtMoney(workCost));
+        $('#vehFootTravel').text(fmtMoney(travCost));
+
+        // ---- By Category ----
+        const catRows = ['WORK', 'TRAVEL'].map(cat => {
+          const sub = rows.filter(r => r[COLS.CATEGORY] === cat);
+          const k = sub.reduce((a, r) => a + r[COLS.KWH], 0);
+          const c = sub.reduce((a, r) => a + r[COLS.COST], 0);
+          return [cat, sub.length, +k.toFixed(4), +c.toFixed(2),
+            totalCost > 0 ? +(c / totalCost * 100).toFixed(2) : 0,
+            k > 0 ? +(c / k).toFixed(4) : 0];
+        });
+        if (!catDT) {
+          catDT = $('#catTable').DataTable({
+            data: catRows, paging: false, searching: false, info: false, order: [[3, 'desc']],
+            columnDefs: [
+              { targets: [0], render: d => `<span class="pill ${d.toLowerCase()}">${d}</span>` },
+              { targets: [1], className: 'num' },
+              { targets: [2], className: 'num', render: d => fmtNum(d, 2) },
+              { targets: [3], className: 'num', render: d => fmtMoney(d) },
+              { targets: [4], className: 'num', render: d => Number(d).toFixed(1) + '%' },
+              { targets: [5], className: 'num', render: d => d ? '$' + Number(d).toFixed(4) : '–' }
+            ]
+          });
+        } else { catDT.clear().rows.add(catRows).draw(); }
+        $('#catFootSessions').text(rows.length);
+        $('#catFootKwh').text(fmtNum(totalKwh, 2));
+        $('#catFootCost').text(fmtMoney(totalCost));
+
+        // ---- By State ----
+        const stMap = new Map();
+        rows.forEach(r => {
+          let v = stMap.get(r[COLS.STATE]);
+          if (!v) { v = { st: r[COLS.STATE], n: 0, kwh: 0, cost: 0 }; stMap.set(r[COLS.STATE], v); }
+          v.n++; v.kwh += r[COLS.KWH]; v.cost += r[COLS.COST];
+        });
+        const stRows = [...stMap.values()].map(v => [
+          v.st, v.n, +v.kwh.toFixed(4), +v.cost.toFixed(2),
+          v.kwh > 0 ? +(v.cost / v.kwh).toFixed(4) : 0
+        ]);
+        if (!stateDT) {
+          stateDT = $('#stateTable').DataTable({
+            data: stRows, order: [[3, 'desc']], paging: false, searching: false, info: false,
+            columnDefs: [
+              { targets: [1], className: 'num' },
+              { targets: [2], className: 'num', render: d => fmtNum(d, 2) },
+              { targets: [3], className: 'num', render: d => fmtMoney(d) },
+              { targets: [4], className: 'num', render: d => d ? '$' + Number(d).toFixed(4) : '–' }
+            ]
+          });
+        } else { stateDT.clear().rows.add(stRows).draw(); }
+        $('#stateFootSessions').text(rows.length);
+        $('#stateFootKwh').text(fmtNum(totalKwh, 2));
+        $('#stateFootCost').text(fmtMoney(totalCost));
+
+        // ---- By Month ----
+        const monMap = new Map();
+        rows.forEach(r => {
+          const m = r[COLS.DATE].slice(0, 7);
+          let v = monMap.get(m);
+          if (!v) { v = { m, n: 0, kwh: 0, cost: 0, work: 0, travel: 0 }; monMap.set(m, v); }
+          v.n++; v.kwh += r[COLS.KWH]; v.cost += r[COLS.COST];
+          if (r[COLS.CATEGORY] === 'WORK') v.work += r[COLS.COST]; else v.travel += r[COLS.COST];
+        });
+        const monRows = [...monMap.values()].sort((a, b) => a.m < b.m ? 1 : -1).map(v => [
+          v.m, v.n, +v.kwh.toFixed(4), +v.cost.toFixed(2),
+          +v.work.toFixed(2), +v.travel.toFixed(2),
+          v.kwh > 0 ? +(v.cost / v.kwh).toFixed(4) : 0
+        ]);
+        if (!monDT) {
+          monDT = $('#monthTable').DataTable({
+            data: monRows, order: [[0, 'desc']], paging: false, searching: false, info: false,
+            columnDefs: [
+              { targets: [1], className: 'num' },
+              { targets: [2], className: 'num', render: d => fmtNum(d, 2) },
+              { targets: [3, 4, 5], className: 'num', render: d => fmtMoney(d) },
+              { targets: [6], className: 'num', render: d => d ? '$' + Number(d).toFixed(4) : '–' }
+            ]
+          });
+        } else { monDT.clear().rows.add(monRows).draw(); }
+        $('#monFootSessions').text(rows.length);
+        $('#monFootKwh').text(fmtNum(totalKwh, 2));
+        $('#monFootCost').text(fmtMoney(totalCost));
+        $('#monFootWork').text(fmtMoney(workCost));
+        $('#monFootTravel').text(fmtMoney(travCost));
+
+        // ---- Charts ----
+        renderCharts(rows, locRows, monRows, vehRows, catRows);
+      }
+
+      // ---- Charts ----
+      let chargerChart, monthlyChart, categoryChart, vehicleChart;
+      function renderCharts(rows, locRows, monRows, vehRows, catRows) {
+        const topLocs = [...locRows].sort((a, b) => b[4] - a[4]).slice(0, 15);
+        const monthlySorted = [...monRows].sort((a, b) => a[0] < b[0] ? -1 : 1);
+
+        const baseScales = {
+          x: { ticks: { color: '#e2e8f0', autoSkip: false, maxRotation: 60, minRotation: 45 }, grid: { color: '#1f2937' } },
+          y: { ticks: { color: '#e2e8f0' }, grid: { color: '#1f2937' } }
+        };
+        const legendDark = { labels: { color: '#e2e8f0' } };
+
+        // Top locations by cost
+        chargerChart && chargerChart.destroy();
+        chargerChart = new Chart(document.getElementById('chargerChart'), {
+          type: 'bar',
+          data: { labels: topLocs.map(r => r[0]), datasets: [{ label: 'Cost ($)', data: topLocs.map(r => r[4]), backgroundColor: '#4fd1c5' }] },
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: baseScales }
+        });
+
+        // Monthly kWh & cost
+        monthlyChart && monthlyChart.destroy();
+        monthlyChart = new Chart(document.getElementById('monthlyChart'), {
+          type: 'bar',
+          data: {
+            labels: monthlySorted.map(r => r[0]),
+            datasets: [
+              { type: 'bar', label: 'kWh', data: monthlySorted.map(r => r[2]), backgroundColor: '#4fd1c5', yAxisID: 'y' },
+              { type: 'line', label: 'Cost', data: monthlySorted.map(r => r[3]), borderColor: '#f59e0b', backgroundColor: '#f59e0b', tension: 0.3, yAxisID: 'y1' }
+            ]
+          },
+          options: {
+            responsive: true, plugins: { legend: legendDark },
+            scales: {
+              x: baseScales.x,
+              y: { position: 'left', ticks: { color: '#4fd1c5' }, grid: { color: '#1f2937' }, title: { display: true, text: 'kWh', color: '#4fd1c5' } },
+              y1: { position: 'right', ticks: { color: '#f59e0b' }, grid: { display: false }, title: { display: true, text: 'Cost $', color: '#f59e0b' } }
+            }
+          }
+        });
+
+        // Category doughnut
+        categoryChart && categoryChart.destroy();
+        categoryChart = new Chart(document.getElementById('categoryChart'), {
+          type: 'doughnut',
+          data: { labels: catRows.map(r => r[0]), datasets: [{ data: catRows.map(r => r[3]), backgroundColor: ['#60a5fa', '#f472b6'] }] },
+          options: { responsive: true, plugins: { legend: legendDark } }
+        });
+
+        // Vehicle bar
+        vehicleChart && vehicleChart.destroy();
+        vehicleChart = new Chart(document.getElementById('vehicleChart'), {
+          type: 'bar',
+          data: {
+            labels: vehRows.map(r => r[0]),
+            datasets: [
+              { label: 'Work', data: vehRows.map(r => r[4]), backgroundColor: '#60a5fa' },
+              { label: 'Travel', data: vehRows.map(r => r[5]), backgroundColor: '#f472b6' }
+            ]
+          },
+          options: { responsive: true, plugins: { legend: legendDark }, scales: { x: { ...baseScales.x, stacked: true }, y: { ...baseScales.y, stacked: true } } }
+        });
+      }
+
+      // ---- Filter wiring ----
+      function onFilterChange() { applyDetailFilters(); renderSummaries(); }
+      $('#filterCategory,#filterVehicle,#filterState,#filterLocation,#startDate,#endDate').on('change', onFilterChange);
+      $('#filterSearch').on('input', onFilterChange);
+      $('#quickRange').on('change', function () {
+        applyQuickRange($(this).val());
+        onFilterChange();
+      });
+      detailTable.on('draw', function () {
+        // Only recompute summaries when detail filter changed (avoid feedback during summary's own draws).
+        // applyDetailFilters() already triggers renderSummaries via onFilterChange, so we don't double-call here.
+      });
+      $('#resetFilters').on('click', function () {
+        $('#filterCategory,#filterVehicle,#filterState,#filterLocation').val('');
+        $('#startDate,#endDate,#filterSearch,#quickRange').val('');
+        onFilterChange();
+      });
+
+      // ---- Tabs ----
+      $('.tab').on('click', function () {
+        const t = $(this).data('tab');
+        $('.tab').removeClass('active');
+        $(this).addClass('active');
+        $('.tab-panel').removeClass('active');
+        $('#panel-' + t).addClass('active');
+        // DataTables need adjust() when shown
+        [detailTable, locDT, vehDT, catDT, stateDT, monDT].forEach(dt => dt && dt.columns.adjust());
+      });
+
+      // ---- CSV export (filtered) ----
+      $('#exportCsv').on('click', function () {
+        const rows = getFilteredRows();
+        const header = ['Date', 'Vehicle', 'Location', 'State', 'kWh', 'Cost', '$/kWh', 'Category'];
+        const body = rows.map(r => [
+          r[0], r[1], r[2], r[3],
+          Number(r[4]).toFixed(4),
+          Number(r[5]).toFixed(2),
+          r[4] > 0 ? (r[5] / r[4]).toFixed(4) : '',
+          r[6]
+        ]);
+        // Append summary footer
+        const totalKwh = rows.reduce((a, r) => a + r[4], 0);
+        const totalCost = rows.reduce((a, r) => a + r[5], 0);
+        const workCost = rows.filter(r => r[6] === 'WORK').reduce((a, r) => a + r[5], 0);
+        const travCost = rows.filter(r => r[6] === 'TRAVEL').reduce((a, r) => a + r[5], 0);
+        const summary = [
+          [],
+          ['Filtered Totals'],
+          ['Sessions', rows.length],
+          ['kWh', totalKwh.toFixed(4)],
+          ['Cost', totalCost.toFixed(2)],
+          ['Work cost', workCost.toFixed(2)],
+          ['Travel cost', travCost.toFixed(2)],
+          ['Avg $/kWh', totalKwh > 0 ? (totalCost / totalKwh).toFixed(4) : '']
+        ];
+        const csv = [header, ...body, ...summary].map(r => r.map(escapeCsv).join(',')).join('\r\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tesla-charging-${todayIso()}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      });
+
+      $('#printPage').on('click', () => window.print());
+
+      // Initial render
+      onFilterChange();
+    });
+  </script>
 </body>
+
 </html>
