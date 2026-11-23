@@ -9,7 +9,7 @@ class PrivateInputError(Exception):
     pass
 
 
-def _contains_unsupported_characters(value):
+def contains_unsupported_characters(value):
     return any(unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in value)
 
 
@@ -29,7 +29,7 @@ def _read_characters(prompt, read, write):
                 if chars:
                     chars.pop()
                     write("\b \b")
-            elif _contains_unsupported_characters(char):
+            elif contains_unsupported_characters(char):
                 raise PrivateInputError(
                     "Unsupported control or invisible character; use a supported terminal paste shortcut or type manually"
                 )

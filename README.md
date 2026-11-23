@@ -74,6 +74,18 @@ any particular live response is not known in advance.
 If verification fails or a POST fails, check Tesla before retrying because the
 outcome may be unknown.
 
+As an alternative to entering credentials at the prompts, explicitly pass a
+local file outside all Git repositories:
+`python .\register_tesla_partner.py --env-file "D:\path\outside-git\.env"`.
+In a private terminal, the helper still requires `CONTINUE` before reading the
+file and requesting a partner token. The UTF-8 file must have exactly the
+literal, unquoted lines `CLIENT_ID=<value>` and `CLIENT_SECRET=<value>`;
+blank lines and comments are allowed. Values are not shell-expanded, printed,
+or copied. Files inside Git repositories and symbolic links are rejected.
+Keep the file private and outside cloud-synced or publicly shared locations.
+Git ignores `.env` and `.env.*` in this repository, but that does not remove
+files already tracked or prevent other software from syncing them.
+
 Client ID and secret prompts show one `*` per entered character. Asterisks
 confirm input was received, not that it was pasted correctly. If a paste
 shortcut is received as a control character, the helper stops before making

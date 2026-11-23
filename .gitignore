@@ -3,6 +3,8 @@
 *.xls
 *.csv
 .private/
+.env
+.env.*
 __pycache__/
 
 # Local backups

@@ -3,9 +3,11 @@ import contextlib
 import hashlib
 import io
 import json
+import tempfile
 import unittest
 import urllib.error
 import urllib.parse
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import register_tesla_partner as partner
@@ -36,6 +38,102 @@ class PartnerTests(unittest.TestCase):
         self.assertEqual(fields["client_id"], ["id-secret"])
         self.assertEqual(fields["client_secret"], ["client-secret"])
         self.assertEqual(token, "token-secret")
+
+    def test_local_credentials_are_read_literally_without_output(self):
+        secret = "$(synthetic-command);secret"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            original = f"# local only\nCLIENT_ID=synthetic-id\nCLIENT_SECRET={secret}\n".encode()
+            path.write_bytes(original)
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                result = partner.load_local_credentials(path)
+            self.assertEqual(result, ("synthetic-id", secret))
+            self.assertEqual(output.getvalue(), "")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_local_credentials_reject_invalid_content_without_disclosure(self):
+        cases = (
+            b"CLIENT_ID=id\nCLIENT_SECRET=secret\nCLIENT_ID=other\n",
+            b"CLIENT_ID=id\nCLIENT_SECRET=secret\nOTHER=private-detail\n",
+            b"CLIENT_ID=id\nCLIENT_SECRET='private-detail'\n",
+            b"CLIENT_ID=id\nCLIENT_SECRET= secret\n",
+            b"CLIENT_ID=id\nCLIENT_SECRET=secret\x16\n",
+            b"CLIENT_ID=id\n",
+            b"CLIENT_ID=id\nCLIENT_SECRET=\xff\n",
+            b"x" * (partner.MAX_ENV_FILE + 1),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            for content in cases:
+                with self.subTest(content_type=cases.index(content)):
+                    path.write_bytes(content)
+                    with self.assertRaises(ValueError) as failure:
+                        partner.load_local_credentials(path)
+                    self.assertNotIn("private-detail", str(failure.exception))
+                    self.assertNotIn(str(path), str(failure.exception))
+
+    def test_local_credentials_reject_git_worktrees(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".git").mkdir()
+            path = root / ".env"
+            path.write_text("CLIENT_ID=id\nCLIENT_SECRET=secret\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "outside Git repositories"):
+                partner.load_local_credentials(path)
+
+    def test_local_credentials_reject_symbolic_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("CLIENT_ID=id\nCLIENT_SECRET=secret\n", encoding="utf-8")
+            with patch.object(Path, "is_symlink", return_value=True):
+                with self.assertRaisesRegex(ValueError, "must not be a symbolic link"):
+                    partner.load_local_credentials(path)
+
+    def test_file_credentials_require_confirmation_before_reading(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner.sys, "stderr", stderr), \
+             patch.object(partner, "verify_hosted_key"), patch("builtins.input", return_value=""), \
+             patch.object(partner, "load_local_credentials") as load, \
+             patch.object(partner, "partner_token") as token, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "Canceled"):
+                partner.main("unused-file")
+        load.assert_not_called()
+        token.assert_not_called()
+
+    def test_file_credentials_are_used_only_in_memory_after_confirmation(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("CLIENT_ID=synthetic-id\nCLIENT_SECRET=synthetic-secret\n", encoding="utf-8")
+            with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+                 patch.object(partner.sys, "stderr", stderr), \
+                 patch.object(partner, "verify_hosted_key"), patch("builtins.input", return_value="CONTINUE"), \
+                 patch.object(partner, "partner_token", return_value="fake-token") as token, \
+                 patch.object(partner, "registered_key", return_value=PEM), \
+                 patch.object(partner, "KEY_SHA256", FINGERPRINT), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                partner.main(str(path))
+            token.assert_called_once_with("synthetic-id", "synthetic-secret")
+            for value in ("synthetic-id", "synthetic-secret", "fake-token"):
+                self.assertNotIn(value, output.getvalue())
+
+    def test_file_credentials_reject_noninteractive_input(self):
+        terminal = Mock()
+        terminal.isatty.return_value = False
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner, "verify_hosted_key") as verify, \
+             patch.object(partner, "load_local_credentials") as load:
+            with self.assertRaisesRegex(SystemExit, "private interactive terminal"):
+                partner.main("unused-file")
+        verify.assert_not_called()
+        load.assert_not_called()
 
     def test_lookup_and_registration_verify_key(self):
         calls = Mock(side_effect=[b'{}', json.dumps({"response": {"public_key": PEM}}).encode()])

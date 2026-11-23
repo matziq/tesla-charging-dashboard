@@ -7,13 +7,16 @@ import hashlib
 import hmac
 import http.client
 import json
+import stat
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 from authorize_tesla import AUDIENCE, TOKEN_URL
 from fetch_charging_history import NoRedirect
-from masked_input import PrivateInputError, read_masked
+from masked_input import PrivateInputError, contains_unsupported_characters, read_masked
 
 
 DOMAIN = "memconfigmgr.org"
@@ -23,6 +26,7 @@ REGISTER_URL = AUDIENCE + "/api/1/partner_accounts"
 LOOKUP_URL = REGISTER_URL + "/public_key?" + urllib.parse.urlencode({"domain": DOMAIN})
 MAX_RESPONSE = 1024 * 1024
 MAX_OAUTH_ERROR = 16 * 1024
+MAX_ENV_FILE = 16 * 1024
 OAUTH_ERROR_CATEGORIES = {category: f"OAuth error: {category}" for category in (
     "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client",
     "unsupported_grant_type", "invalid_scope", "invalid_client_id", "server_error",
@@ -161,15 +165,68 @@ def register(token):
         raise ValueError("Registration POST returned HTTP 200, but the registered key could not be verified; check Tesla before retrying")
 
 
-def main():
+def load_local_credentials(filename):
     try:
+        path = Path(filename)
+        is_symlink = path.is_symlink()
+        path = path.resolve(strict=True)
+        mode = path.stat().st_mode
+    except (OSError, RuntimeError, ValueError):
+        raise ValueError("Credential file could not be opened") from None
+    if is_symlink:
+        raise ValueError("Credential file must not be a symbolic link")
+    if not stat.S_ISREG(mode):
+        raise ValueError("Credential file must be a regular file")
+    try:
+        in_repository = any((parent / ".git").exists() for parent in path.parents)
+    except OSError:
+        raise ValueError("Credential file location could not be checked") from None
+    if in_repository:
+        raise ValueError("Credential file must be outside Git repositories")
+    try:
+        with path.open("rb") as source:
+            data = source.read(MAX_ENV_FILE + 1)
+    except OSError:
+        raise ValueError("Credential file could not be opened") from None
+    if len(data) > MAX_ENV_FILE:
+        raise ValueError("Credential file exceeds the size limit")
+    try:
+        text = data.decode("utf-8-sig").replace("\r\n", "\n")
+    except UnicodeError:
+        raise ValueError("Credential file must be UTF-8") from None
+    fields = {}
+    for line in text.split("\n"):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if (not separator or key not in ("CLIENT_ID", "CLIENT_SECRET")
+                or key in fields or not value or value != value.strip()
+                or value[0] in ("'", '"') or contains_unsupported_characters(value)):
+            raise ValueError("Credential file has invalid or duplicate entries")
+        fields[key] = value
+    if set(fields) != {"CLIENT_ID", "CLIENT_SECRET"}:
+        raise ValueError("Credential file must contain CLIENT_ID and CLIENT_SECRET")
+    return fields["CLIENT_ID"], fields["CLIENT_SECRET"]
+
+
+def main(env_file=None):
+    try:
+        if env_file is not None and (
+            sys.stdin is not sys.__stdin__ or not sys.stdin.isatty() or not sys.stderr.isatty()
+        ):
+            raise PrivateInputError("a private interactive terminal is required")
         print("Tesla partner helper: diagnostic format v3")
         verify_hosted_key()
         print("Hosted key verified. Confirm the Tesla application allows https://memconfigmgr.org.")
-        if input("Type CONTINUE to enter credentials, or press Enter to cancel: ").strip() != "CONTINUE":
+        if env_file is not None:
+            print("Credentials will be read from the specified local file.")
+        if input("Type CONTINUE to use credentials, or press Enter to cancel: ").strip() != "CONTINUE":
             raise ValueError("Canceled; no authenticated request was sent")
-        client_id = read_masked("Tesla application client ID (masked): ").strip()
-        client_secret = read_masked("Tesla application client secret (masked): ")
+        if env_file is None:
+            client_id = read_masked("Tesla application client ID (masked): ").strip()
+            client_secret = read_masked("Tesla application client secret (masked): ")
+        else:
+            client_id, client_secret = load_local_credentials(env_file)
         if not client_id or not client_secret:
             raise ValueError("Client ID and client secret are required")
         token = partner_token(client_id, client_secret)
@@ -203,4 +260,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 1:
+        main()
+    elif len(sys.argv) == 3 and sys.argv[1] == "--env-file":
+        main(sys.argv[2])
+    else:
+        raise SystemExit("Usage: python register_tesla_partner.py [--env-file PATH]")
