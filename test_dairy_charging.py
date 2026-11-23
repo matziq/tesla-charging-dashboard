@@ -191,6 +191,7 @@ class CandidateTests(unittest.TestCase):
             b'{"data":[],"totalResults":0,"totalResults":1}',
             b'{"data":"secret","totalResults":1}',
             b'{"data": ["secret"',
+            b'{"data":[{"sessionId":1,"fees":[{"amount":1e999999999999999999999999}]}],"totalResults":1}',
         )
         for body in cases:
             with self.subTest(case=cases.index(body)):

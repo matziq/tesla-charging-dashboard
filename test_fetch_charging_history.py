@@ -27,6 +27,24 @@ class Response:
 
 
 class FetchTests(unittest.TestCase):
+    def test_staged_requests_are_bounded_and_use_the_expected_query(self):
+        opener = Mock()
+        opener.open.return_value = Response(b"{}")
+        with patch.object(fetch.urllib.request, "build_opener", return_value=opener):
+            for page in range(1, fetch.MAX_STAGED_PAGES + 1):
+                fetch.fetch_staged_page("synthetic-token", page)
+                request = opener.open.call_args.args[0]
+                parts = urllib.parse.urlsplit(request.full_url)
+                self.assertEqual(parts.scheme + "://" + parts.netloc + parts.path, fetch.URL)
+                self.assertEqual(urllib.parse.parse_qs(parts.query),
+                                 {"pageNo": [str(page)], "pageSize": ["25"]})
+                self.assertEqual(request.method, "GET")
+                self.assertEqual(request.get_header("Content-type"), "application/json")
+            for invalid in (0, 6, True, "1"):
+                with self.assertRaises(ValueError):
+                    fetch.fetch_staged_page("synthetic-token", invalid)
+        self.assertEqual(opener.open.call_count, fetch.MAX_STAGED_PAGES)
+
     def test_pagination_probe_is_fixed_to_two_pages_and_expected_query(self):
         opener = Mock()
         opener.open.return_value = Response(b"{}")

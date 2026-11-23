@@ -277,6 +277,39 @@ do not establish pagination semantics, a complete or stable history, or
 partner-key registration. These candidate pages can be selected together or
 individually for review in the local ledger; they are not automatically imported.
 
+### Optional bounded history staging
+
+This separate, user-initiated tool stages pages for manual review; it does not
+automatically synchronize or import charges. From the standalone folder,
+double-click `Launch Tesla History Staging.cmd`, or run
+`python .\stage_tesla_history.py --env-file "D:\path\outside-git\.env"` in a
+private terminal. Without `--env-file`, enter application credentials in the
+masked prompts. No offline access, registration or schedule is activated.
+
+Choose a maximum of **1 to 5 history GETs** (25 requested records per page).
+Read the scope, potential billing, private unencrypted storage and unverified
+pagination warnings, then type `CONTINUE` to begin authorization. Complete your
+own Tesla sign-in and consent; immediately before any history GET, read the
+warnings and exact cap again and type `FETCH`. Enter cancels at either gate.
+The scope also permits charging commands, but this tool sends none.
+
+The tool tests the unverified `pageNo` and `pageSize` parameters and saves only
+pages that pass its structural and consistency checks to a new
+`.private\history-stage-*` folder beside the script. It stops without retries
+when the cap is reached, totals change, identifiers repeat, a page is malformed
+or too large, a short or empty page occurs before the reported total, or a
+request or save fails. The failing page is not intentionally staged; a failed
+write may leave a partial file. Previously staged pages remain in the displayed
+private folder. Even when the row count matches the reported total, a stable
+snapshot and complete history are **not verified**. Storage is unencrypted,
+inherits local access controls, and is not protected from backups or sync merely
+by its folder name or Git ignore.
+
+In the dashboard select **Review saved Tesla responses** and Ctrl-click the
+staged `page-*.bin` files in that folder. Nothing is imported automatically:
+review each candidate, identify the vehicle and dairy trip yourself, verify
+values and units independently, and check manual-entry duplicates before saving.
+
 ### Check saved page structure locally
 
 Double-click `Launch Tesla Page Check.cmd` beside the standalone dashboard, then

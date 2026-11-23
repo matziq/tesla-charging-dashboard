@@ -13,6 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 URL = "https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/dx/charging/history"
 MAX_BYTES = 10 * 1024 * 1024
+MAX_STAGED_PAGES = 5
+STAGED_PAGE_SIZE = 25
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -28,6 +30,13 @@ def fetch_probe_page(token, page):
     if type(page) is not int or page not in (1, 2):
         raise ValueError("Pagination probe only permits page 1 or 2")
     query = urllib.parse.urlencode({"pageNo": page, "pageSize": 25})
+    return _fetch_history(token, f"{URL}?{query}")
+
+
+def fetch_staged_page(token, page):
+    if type(page) is not int or not 1 <= page <= MAX_STAGED_PAGES:
+        raise ValueError("History staging page is outside the permitted limit")
+    query = urllib.parse.urlencode({"pageNo": page, "pageSize": STAGED_PAGE_SIZE})
     return _fetch_history(token, f"{URL}?{query}")
 
 

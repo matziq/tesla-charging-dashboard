@@ -19,14 +19,14 @@ def require_terminal():
         raise PrivateInputError("a private interactive terminal is required")
 
 
-def private_directory():
+def private_directory(prefix="pagination-probe-"):
     directory = ROOT / ".private"
     try:
         directory.mkdir(mode=0o700, exist_ok=True)
         if (directory.is_symlink() or getattr(directory, "is_junction", lambda: False)() or not directory.is_dir()
                 or directory.resolve().parent != ROOT.resolve()):
             raise ValueError("The private output directory must be a local non-link directory")
-        return Path(tempfile.mkdtemp(prefix="pagination-probe-", dir=directory))
+        return Path(tempfile.mkdtemp(prefix=prefix, dir=directory))
     except OSError:
         raise ValueError("Could not create a private response directory") from None
 

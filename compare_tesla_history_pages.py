@@ -18,12 +18,7 @@ def _no_duplicate_keys(pairs):
     return result
 
 
-def read_page(path):
-    try:
-        with path.open("rb") as source:
-            data = source.read(MAX_BYTES + 1)
-    except OSError:
-        raise ValueError("Page file could not be read") from None
+def parse_page(data):
     if len(data) > MAX_BYTES:
         raise ValueError("Page exceeds the 10 MiB limit")
     try:
@@ -45,6 +40,15 @@ def read_page(path):
     if len(identifiers) != len(set(identifiers)):
         raise ValueError("Page contains duplicate session identifiers")
     return total, identifiers
+
+
+def read_page(path):
+    try:
+        with path.open("rb") as source:
+            data = source.read(MAX_BYTES + 1)
+    except OSError:
+        raise ValueError("Page file could not be read") from None
+    return parse_page(data)
 
 
 def compare_pages(first, second):

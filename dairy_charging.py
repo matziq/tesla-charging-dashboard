@@ -109,7 +109,7 @@ def fee_details(row):
     return details
 
 
-def read_candidates(path):
+def parse_candidates(data):
     def unique_keys(pairs):
         result = {}
         for key, value in pairs:
@@ -121,17 +121,12 @@ def read_candidates(path):
     def reject_constant(_value):
         raise ValueError("Invalid JSON constant")
 
-    try:
-        with Path(path).open("rb") as source:
-            data = source.read(MAX_RESPONSE_BYTES + 1)
-    except OSError:
-        raise ValueError("The selected response could not be opened.") from None
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("The selected response exceeds 10 MiB.")
     try:
         payload = json.loads(data, object_pairs_hook=unique_keys,
                              parse_float=Decimal, parse_constant=reject_constant)
-    except (ValueError, UnicodeError, RecursionError):
+    except (ValueError, UnicodeError, RecursionError, InvalidOperation):
         raise ValueError("The selected response is not valid unambiguous JSON.") from None
     if not isinstance(payload, dict):
         raise ValueError("The selected response has an unsupported structure.")
@@ -160,6 +155,15 @@ def read_candidates(path):
         candidate["fee_details"] = fee_details(row)
         candidates.append(candidate)
     return candidates
+
+
+def read_candidates(path):
+    try:
+        with Path(path).open("rb") as source:
+            data = source.read(MAX_RESPONSE_BYTES + 1)
+    except OSError:
+        raise ValueError("The selected response could not be opened.") from None
+    return parse_candidates(data)
 
 
 def read_candidate_pages(paths):
