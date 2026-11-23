@@ -21,7 +21,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def fetch_first_page(token):
     if not token or not token.isascii() or any(c.isspace() or ord(c) < 33 or ord(c) == 127 for c in token):
-        raise ValueError("TESLA_FLEET_ACCESS_TOKEN must contain a valid bearer token")
+        raise ValueError("Tesla access token must be a valid bearer token")
     request = urllib.request.Request(
         URL, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         method="GET",
@@ -41,22 +41,26 @@ def fetch_first_page(token):
     return body
 
 
+def save_response(body):
+    private_dir = ROOT / ".private"
+    private_dir.mkdir(exist_ok=True)
+    output = tempfile.NamedTemporaryFile(
+        mode="wb", prefix="charging-history-", suffix=".bin",
+        dir=private_dir, delete=False,
+    )
+    try:
+        with output:
+            output.write(body)
+    except OSError:
+        Path(output.name).unlink(missing_ok=True)
+        raise
+    return output.name
+
+
 def main():
     try:
         body = fetch_first_page(os.environ.get("TESLA_FLEET_ACCESS_TOKEN"))
-        private_dir = ROOT / ".private"
-        private_dir.mkdir(exist_ok=True)
-        output = tempfile.NamedTemporaryFile(
-            mode="wb", prefix="charging-history-", suffix=".bin",
-            dir=private_dir, delete=False,
-        )
-        try:
-            with output:
-                output.write(body)
-        except OSError:
-            Path(output.name).unlink(missing_ok=True)
-            raise
-        print(f"Saved first response for private inspection: {output.name}")
+        print(f"Saved first response for private inspection: {save_response(body)}")
     except (OSError, ValueError) as error:
         raise SystemExit(f"Fetch failed: {error}") from None
 

@@ -31,8 +31,46 @@ energy, is limited to business fleet owners. That does **not** prove those field
 are absent from personal history: their shape and availability remain unverified. Tesla's
 [scope documentation](https://developer.tesla.com/docs/fleet-api/authentication/overview)
 describes `vehicle_charging_cmds` as covering charging history, billed amount,
-location, and charging commands. The fetch below has not been tested with a Tesla
-account or real response.
+location, and charging commands. The authorization flow and fetch below have not
+been tested with a Tesla account or real response.
+
+### Application setup and local authorization
+
+Tesla's [partner registration documentation](https://developer.tesla.com/docs/fleet-api/endpoints/partner-endpoints)
+requires each application to register before general API access, using a partner
+token and a domain matching the root of an allowed origin. The application must
+host its **public** EC secp256r1 key at
+`https://<app-domain>/.well-known/appspecific/com.tesla.3p.public-key.pem`;
+keep the corresponding private key secret. The key must remain hosted. Register
+the application for the North American region using Tesla's
+[onboarding](https://developer.tesla.com/docs/fleet-api) and
+[partner-token instructions](https://developer.tesla.com/docs/fleet-api/authentication/partner-tokens).
+A localhost-only allowed origin cannot satisfy the public HTTPS domain/key
+requirement. Use a public HTTPS domain you control and configure an appropriate
+allowed origin in Tesla's portal; check Tesla's current portal rules.
+
+The callback is separate from that public application domain. This prototype
+uses the exact redirect URI `http://localhost:8765/callback` and listens only
+on `127.0.0.1:8765`. Register that exact callback in the portal if accepted;
+Tesla's indexed documentation does not establish whether the portal accepts
+HTTP localhost callbacks, and this has not been tested with a real application.
+If Tesla rejects it, do not forward a public callback to this local server or
+enter credentials into an untrusted site; a different verified design is needed.
+
+Once registration is complete, run `python .\authorize_tesla.py` in your own
+interactive terminal. Enter the application client ID and, at the hidden
+prompt, its client secret. Your browser opens Tesla sign-in and consent; you
+must complete them yourself. The script uses a random state and PKCE S256 (listed
+in Tesla's [third-party discovery metadata](https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/thirdparty/.well-known/openid-configuration)),
+then exchanges the code using the endpoint in Tesla's
+[user-token documentation](https://developer.tesla.com/docs/fleet-api/authentication/third-party-tokens).
+It requests only `openid` and `vehicle_charging_cmds`, does not request a refresh
+token, and does not print or save client secrets, authorization codes, or tokens.
+It uses the access token in memory for one history GET and saves the raw response
+locally as described below. A new authorization is needed for each run. The
+scope also allows charging commands even though this script never sends them.
+The browser may retain the callback URL in its history; treat it as sensitive.
+Don't share credentials, callback URLs, or raw responses in chat.
 
 ### Discover the personal-history schema
 
@@ -43,28 +81,23 @@ It does not request further pages, interpret fields, or modify the dashboard.
 It refuses redirects and does not print the token or response contents. Non-200
 responses, networking failures, and responses over 10 MiB are not saved.
 
-1. Follow Tesla's [developer onboarding](https://developer.tesla.com/docs/fleet-api)
-   and [user authorization-code flow](https://developer.tesla.com/docs/fleet-api/authentication/third-party-tokens)
-   to register an application in the appropriate region and obtain a user access
-   token for the North American audience. Tesla lists `vehicle_charging_cmds` for
-   charging history; this scope also authorizes charging commands, so grant it only
-   to an application you trust. Tesla's [billing and limits](https://developer.tesla.com/docs/fleet-api/billing-and-limits)
-   may apply, including to unsuccessful requests. This script uses no commands.
-2. In your own PowerShell window, enter the token privately when prompted; do not
-   paste tokens, authorization codes, or responses into this chat. Run:
+Tesla's [billing and limits](https://developer.tesla.com/docs/fleet-api/billing-and-limits)
+may apply, including to unsuccessful requests. If you already have a suitable
+user access token instead of using the local authorization flow, enter it privately
+in your own PowerShell window; do not paste it into this chat:
 
-   ```powershell
-   $token = Read-Host "Tesla Fleet user access token" -AsSecureString
-   $env:TESLA_FLEET_ACCESS_TOKEN = [System.Net.NetworkCredential]::new("", $token).Password
-   try { python .\fetch_charging_history.py }
-   finally { Remove-Item Env:\TESLA_FLEET_ACCESS_TOKEN -ErrorAction SilentlyContinue; Remove-Variable token }
-   ```
+```powershell
+$token = Read-Host "Tesla Fleet user access token" -AsSecureString
+$env:TESLA_FLEET_ACCESS_TOKEN = [System.Net.NetworkCredential]::new("", $token).Password
+try { python .\fetch_charging_history.py }
+finally { Remove-Item Env:\TESLA_FLEET_ACCESS_TOKEN -ErrorAction SilentlyContinue; Remove-Variable token }
+```
 
-3. Inspect the printed `.private\charging-history-*.bin` path locally in a
-   trusted editor. It contains the unmodified response bytes, potentially
-   including sensitive locations and identifiers. The ignored folder is not an
-   access control; protect and remove the file when no longer needed. HTTP errors
-   are reported by status without saving their potentially sensitive bodies.
+Inspect the printed `.private\charging-history-*.bin` path locally in a
+trusted editor. It contains the unmodified response bytes, potentially
+including sensitive locations and identifiers. The ignored folder is not an
+access control; protect and remove the file when no longer needed. HTTP errors
+are reported by status without saving their potentially sensitive bodies.
 
 The script has a fixed North American host; don't use it with a token for another
 regional audience. Do not send the response to a third-party tool or publish it.
@@ -99,7 +132,7 @@ Verify the actual personal-history response and pagination privately before
 mapping fields or implementing further automation. Never put tokens in the
 repository or publish raw responses.
 
-Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history`.
+Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history test_authorize_tesla`.
 
 ## Local preview
 
