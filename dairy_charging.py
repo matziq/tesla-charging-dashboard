@@ -17,6 +17,8 @@ FIELDS = ("vehicle", "dairy", "direction", "date", "time", "location",
 DIRECTIONS = ("To dairy", "From dairy")
 NUMBER_FIELDS = ("odometer", "trip_miles", "energy", "rate", "paid")
 MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+MAX_REVIEW_PAGES = 20
+MAX_REVIEW_CANDIDATES = 5000
 LABELS = {
     "vehicle": "Vehicle", "dairy": "Dairy", "direction": "Direction",
     "date": "Date (MM/DD/YYYY)", "time": "Time (HH:MM, 24-hour)",
@@ -118,6 +120,24 @@ def read_candidates(path):
                 raise ValueError("The selected response has invalid candidate details.")
             candidate[key] = value or "Not provided"
         candidates.append(candidate)
+    return candidates
+
+
+def read_candidate_pages(paths):
+    if not paths or len(paths) > MAX_REVIEW_PAGES:
+        raise ValueError("Select between 1 and 20 saved responses.")
+    candidates, identifiers = [], set()
+    for path in paths:
+        page = read_candidates(path)
+        if len(candidates) + len(page) > MAX_REVIEW_CANDIDATES:
+            raise ValueError("The selected responses contain too many candidates.")
+        for candidate in page:
+            identifier = candidate["sessionId"]
+            if identifier in identifiers:
+                raise ValueError("The selected responses have overlapping session identifiers. "
+                                 "Select non-overlapping pages or review them separately.")
+            identifiers.add(identifier)
+            candidates.append(candidate)
     return candidates
 
 
@@ -224,7 +244,7 @@ class Dashboard:
         shell.pack(fill="both", expand=True)
         ttk.Label(shell, text="Dairy-trip charging", font=("Segoe UI", 18, "bold")).pack(anchor="w")
         ttk.Label(shell, text="Local ledger · Unknown amounts stay blank · No Tesla connection").pack(anchor="w", pady=(0, 8))
-        ttk.Button(shell, text="Review a saved Tesla response", command=self.open_review).pack(anchor="w", pady=(0, 8))
+        ttk.Button(shell, text="Review saved Tesla responses", command=self.open_review).pack(anchor="w", pady=(0, 8))
         form = ttk.LabelFrame(shell, text="Record or correct a charge", padding=8)
         form.pack(fill="x")
         self.vehicle_box = self.dairy_box = None
@@ -297,18 +317,18 @@ class Dashboard:
                                 "Save or clear the selected record before opening the review.",
                                 parent=self.root)
             return
-        path = filedialog.askopenfilename(
-            parent=self.root, title="Select a privately saved Tesla response",
+        paths = filedialog.askopenfilenames(
+            parent=self.root, title="Select privately saved Tesla responses",
             filetypes=(("Response files", "*.bin *.json"), ("All files", "*.*")))
-        if not path:
+        if not paths:
             return
         try:
-            candidates = read_candidates(path)
+            candidates = read_candidate_pages(paths)
         except ValueError as error:
             messagebox.showerror("Could not open response", str(error), parent=self.root)
             return
         if not candidates:
-            messagebox.showinfo("No candidates", "This response contains no candidates.", parent=self.root)
+            messagebox.showinfo("No candidates", "The selected responses contain no candidates.", parent=self.root)
             return
         ReviewWindow(self, candidates)
 
@@ -380,7 +400,7 @@ class ReviewWindow:
     def __init__(self, dashboard, candidates):
         self.dashboard, self.candidates = dashboard, candidates
         self.window = tk.Toplevel(dashboard.root)
-        self.window.title("Review saved Tesla response")
+        self.window.title("Review saved Tesla responses")
         self.window.geometry("1120x700")
         self.window.transient(dashboard.root)
         self.window.grab_set()
@@ -390,7 +410,7 @@ class ReviewWindow:
         frame = ttk.Frame(self.window, padding=12)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, wraplength=1060, text=(
-            "This is one potentially incomplete page, not a complete history. "
+            "These selected pages may be incomplete and are not a complete history. "
             "Select a candidate and independently enter every required value. "
             "Tesla details below are unverified; no amount, mileage, units or date is inferred."
         )).pack(anchor="w")

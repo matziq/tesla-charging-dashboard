@@ -3,8 +3,9 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from dairy_charging import Ledger, read_candidates, summarize, validate
+from dairy_charging import Dashboard, Ledger, read_candidate_pages, read_candidates, summarize, validate
 
 
 def record(**changes):
@@ -174,6 +175,46 @@ class CandidateTests(unittest.TestCase):
         with self.assertRaises(ValueError) as failure:
             read_candidates(self.path / "private-name")
         self.assertNotIn("private-name", str(failure.exception))
+
+    def test_multiple_pages_are_reviewed_together_without_inference(self):
+        second = self.path.with_name("second.bin")
+        self.path.write_text(json.dumps({"data": [{"sessionId": 101}], "totalResults": 3}))
+        second.write_text(json.dumps({"data": [{"sessionId": 202}], "totalResults": 3}))
+        rows = read_candidate_pages([self.path, second])
+        self.assertEqual([row["sessionId"] for row in rows], [101, 202])
+        self.assertTrue(all("energy" not in row and "fees" not in row for row in rows))
+
+    def test_overlapping_pages_and_invalid_later_page_are_rejected(self):
+        second = self.path.with_name("second.bin")
+        self.path.write_text(json.dumps({"data": [{"sessionId": 101}], "totalResults": 2}))
+        for body in ('{"data":[{"sessionId":101}],"totalResults":2}', 'private invalid content'):
+            second.write_text(body)
+            with self.assertRaises(ValueError) as failure:
+                read_candidate_pages([self.path, second])
+            self.assertNotIn("101", str(failure.exception))
+            self.assertNotIn("private", str(failure.exception))
+        with self.assertRaisesRegex(ValueError, "overlapping"):
+            read_candidate_pages([self.path, self.path])
+
+    def test_page_and_candidate_limits(self):
+        with self.assertRaises(ValueError):
+            read_candidate_pages([])
+        with self.assertRaises(ValueError):
+            read_candidate_pages([self.path] * 21)
+        with mock.patch("dairy_charging.read_candidates",
+                        side_effect=[[{"sessionId": i} for i in range(5000)],
+                                     [{"sessionId": 5000}]]):
+            with self.assertRaisesRegex(ValueError, "too many"):
+                read_candidate_pages(["one", "two"])
+
+    def test_review_dialog_passes_selected_pages_to_one_window(self):
+        dashboard = mock.Mock(selected=None)
+        with (mock.patch("dairy_charging.filedialog.askopenfilenames", return_value=("one", "two")),
+              mock.patch("dairy_charging.read_candidate_pages", return_value=[{"sessionId": 1}]) as read,
+              mock.patch("dairy_charging.ReviewWindow") as window):
+            Dashboard.open_review(dashboard)
+        read.assert_called_once_with(("one", "two"))
+        window.assert_called_once_with(dashboard, [{"sessionId": 1}])
 
 
 if __name__ == "__main__":

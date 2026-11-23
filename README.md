@@ -25,11 +25,19 @@ Both former public dashboard URLs now serve retirement notices. The old CSV
 preview command is retired; Tesla discovery tools below remain available. No
 existing records were migrated. Historical Git content may still be public.
 
-### Review a saved Tesla response
+### Review saved Tesla responses
 
-The local dashboard's **Review a saved Tesla response** button opens a file the
-user explicitly selects; it makes no Tesla request. A response is only a
-potentially incomplete page, not a complete history. The review window shows
+The local dashboard's **Review saved Tesla responses** button opens one or more
+files the user explicitly selects; it makes no Tesla request. To review both
+probe pages together, navigate to the displayed private response directory and
+select `page-1.bin` and `page-2.bin` using Ctrl-click. Select up to 20 files
+and 5,000 candidates at once. If pages contain overlapping session identifiers,
+the selection is rejected rather than silently choosing a version; review those
+pages separately instead. All selected files are checked before the review
+opens, and no records are saved by selecting them.
+
+The selected responses are potentially incomplete pages, not a complete history.
+The review window shows
 the reported vehicle identifier, location and timestamps locally as unverified
 clues. It does not interpret fee data or prefill the ledger. For each dairy
 trip, manually enter and confirm the vehicle, dairy, direction, date, time,
@@ -260,8 +268,8 @@ backups or sync services from seeing it. Protect it and never publish raw
 responses. If a request, save or parsing step fails, the tool stops; any earlier
 saved page remains in the displayed folder. Distinct pages and matching totals
 do not establish pagination semantics, a complete or stable history, or
-partner-key registration. These candidate pages can be selected individually
-for review in the local ledger; they are not automatically imported.
+partner-key registration. These candidate pages can be selected together or
+individually for review in the local ledger; they are not automatically imported.
 
 ### Discover the personal-history schema
 
@@ -298,9 +306,10 @@ regional audience. Do not send the response to a third-party tool or publish it.
 The former `refresh_dashboard.py` CSV-to-HTML preview command is retired; it
 does not read the CSV or create output. Its original implementation and template
 remain in the archive tag. Do not copy archived personal data into a public
-folder. The new local ledger does not import historical or Tesla data. Verify
-the personal-history fields and pagination before implementing any future
-import. Never put tokens in the repository or publish raw responses.
+folder. The local ledger does not automatically import historical or Tesla
+data; the saved-response review described above requires manual confirmation.
+Verify personal-history fields and pagination before implementing automatic
+synchronization. Never put tokens in the repository or publish raw responses.
 
 Run local checks with `python -m unittest test_dairy_charging test_refresh_dashboard test_fetch_charging_history test_authorize_tesla test_tesla_token_store test_register_tesla_partner test_check_tesla_client_id test_masked_input`.
 
