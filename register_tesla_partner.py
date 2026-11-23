@@ -23,18 +23,43 @@ KEY_SHA256 = "023eeb7364a60478e92fd3f77c5a630df9eef1eaf4e9e14d8d35a1a77fc2c357"
 REGISTER_URL = AUDIENCE + "/api/1/partner_accounts"
 LOOKUP_URL = REGISTER_URL + "/public_key?" + urllib.parse.urlencode({"domain": DOMAIN})
 MAX_RESPONSE = 1024 * 1024
+MAX_OAUTH_ERROR = 16 * 1024
+OAUTH_ERROR_CATEGORIES = frozenset({
+    "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client",
+    "unsupported_grant_type", "invalid_scope",
+})
 
 
-def request_bytes(request, label, allow_not_found=False):
+def oauth_error_category(error):
+    try:
+        body = error.read(MAX_OAUTH_ERROR + 1)
+        if len(body) > MAX_OAUTH_ERROR:
+            return None
+        payload = json.loads(body)
+    except (OSError, ValueError, UnicodeError, RecursionError, http.client.HTTPException):
+        return None
+    category = payload.get("error") if isinstance(payload, dict) else None
+    return category if isinstance(category, str) and category in OAUTH_ERROR_CATEGORIES else None
+
+
+def request_bytes(request, label, allow_not_found=False, oauth_error=False):
     try:
         with urllib.request.build_opener(NoRedirect()).open(request, timeout=30) as response:
             if response.status != 200:
                 raise ValueError(f"{label} returned HTTP {response.status}")
             body = response.read(MAX_RESPONSE + 1)
     except urllib.error.HTTPError as error:
-        if allow_not_found and error.code == 404:
-            return None
-        raise ValueError(f"{label} returned HTTP {error.code}") from None
+        try:
+            if allow_not_found and error.code == 404:
+                return None
+            category = oauth_error_category(error) if oauth_error else None
+            suffix = f" (OAuth error: {category})" if category else ""
+            raise ValueError(f"{label} returned HTTP {error.code}{suffix}") from None
+        finally:
+            try:
+                error.close()
+            except OSError:
+                raise ValueError(f"{label} error response could not be closed") from None
     except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
         raise ValueError(f"Network or TLS error during {label.lower()}") from None
     if len(body) > MAX_RESPONSE:
@@ -85,7 +110,7 @@ def partner_token(client_id, client_secret):
         headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
         method="POST",
     )
-    payload = read_json(request_bytes(request, "Partner token"), "Partner token")
+    payload = read_json(request_bytes(request, "Partner token", oauth_error=True), "Partner token")
     token = payload.get("access_token")
     if (not isinstance(token, str) or not token or not token.isascii()
             or any(c.isspace() or ord(c) < 33 or ord(c) == 127 for c in token)):

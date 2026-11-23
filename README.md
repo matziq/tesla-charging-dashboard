@@ -63,8 +63,10 @@ you to type `REGISTER` before it sends that POST. It rechecks immediately before
 the POST and checks Tesla's registered key again before reporting success; Tesla
 does not provide an atomic compare-and-set here, so a concurrent change remains
 possible. Unexpected responses or failures stop the
-process without printing credentials, tokens, or response bodies; if verification
-fails or a POST fails, check Tesla before retrying because the outcome may be unknown.
+process without printing credentials, tokens, or response bodies. For a token HTTP
+error, the helper displays a recognized OAuth error category if present; unknown
+responses and descriptions remain private. If verification fails or a POST fails,
+check Tesla before retrying because the outcome may be unknown.
 
 The helper pins the prepared public key's SHA-256 fingerprint. A key rotation
 requires reviewing and updating that fingerprint before using the helper. Tesla's

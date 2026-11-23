@@ -81,6 +81,93 @@ class PartnerTests(unittest.TestCase):
                 self.assertIn(f"HTTP {status}", str(failure.exception))
                 self.assertNotIn("secret", str(failure.exception))
 
+    def test_token_errors_report_only_allowlisted_categories(self):
+        for category in partner.OAUTH_ERROR_CATEGORIES:
+            with self.subTest(category=category):
+                body = json.dumps({
+                    "error": category,
+                    "error_description": "description-secret",
+                    "access_token": "token-secret",
+                    "client_secret": "client-secret",
+                }).encode()
+                opener = Mock()
+                opener.open.side_effect = urllib.error.HTTPError(
+                    partner.TOKEN_URL, 400, "reason-secret", {}, io.BytesIO(body)
+                )
+                with patch.object(partner.urllib.request, "build_opener", return_value=opener), \
+                     contextlib.redirect_stdout(io.StringIO()) as stdout:
+                    with self.assertRaises(ValueError) as failure:
+                        partner.partner_token("id-secret", "client-secret")
+                self.assertEqual(str(failure.exception), f"Partner token returned HTTP 400 (OAuth error: {category})")
+                self.assertEqual(stdout.getvalue(), "")
+                for secret in ("description-secret", "token-secret", "client-secret", "reason-secret"):
+                    self.assertNotIn(secret, str(failure.exception))
+
+    def test_unrecognized_malformed_and_oversized_token_errors_are_sanitized(self):
+        bodies = (
+            b'{"error":"unknown-secret","error_description":"description-secret"}',
+            b'{"error":["invalid_client"],"access_token":"token-secret"}',
+            b'{"error":"invalid_client","error_description":"secret"',
+            b'\xffsecret',
+            b'[' * 2000 + b'0' + b']' * 2000,
+            b'{"error":"invalid_client","padding":"' + b"x" * partner.MAX_OAUTH_ERROR + b'"}',
+        )
+        for body in bodies:
+            with self.subTest(body=body[:40]):
+                opener = Mock()
+                opener.open.side_effect = urllib.error.HTTPError(
+                    partner.TOKEN_URL, 400, "reason-secret", {}, io.BytesIO(body)
+                )
+                with patch.object(partner.urllib.request, "build_opener", return_value=opener):
+                    with self.assertRaises(ValueError) as failure:
+                        partner.partner_token("id-secret", "client-secret")
+                self.assertEqual(str(failure.exception), "Partner token returned HTTP 400")
+
+    def test_non_token_http_errors_do_not_read_or_classify_response_body(self):
+        stream = Mock(wraps=io.BytesIO(b'{"error":"invalid_client","error_description":"secret"}'))
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(partner.REGISTER_URL, 400, "secret", {}, stream)
+        with patch.object(partner.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaises(ValueError) as failure:
+                partner.request_bytes(urllib.request.Request(partner.REGISTER_URL), "Partner registration")
+        self.assertEqual(str(failure.exception), "Partner registration returned HTTP 400")
+        stream.read.assert_not_called()
+
+    def test_token_error_reads_are_bounded(self):
+        stream = Mock(wraps=io.BytesIO(b'{"error":"invalid_client"}'))
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(partner.TOKEN_URL, 400, "", {}, stream)
+        with patch.object(partner.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaises(ValueError):
+                partner.partner_token("id", "secret")
+        stream.read.assert_called_once_with(partner.MAX_OAUTH_ERROR + 1)
+
+    def test_interactive_token_failure_shows_only_safe_category(self):
+        body = b'{"error":"invalid_client","error_description":"secret-detail","access_token":"secret-token"}'
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(partner.TOKEN_URL, 400, "", {}, io.BytesIO(body))
+        with patch.object(partner, "verify_hosted_key"), \
+             patch("builtins.input", return_value="CONTINUE"), \
+             patch.object(partner.getpass, "getpass", side_effect=["id-secret", "client-secret"]), \
+             patch.object(partner.urllib.request, "build_opener", return_value=opener), \
+             patch.object(partner, "register") as register, \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as failure:
+                partner.main()
+        self.assertEqual(str(failure.exception), "Registration failed: Partner token returned HTTP 400 (OAuth error: invalid_client)")
+        register.assert_not_called()
+
+    def test_error_response_io_failure_is_sanitized(self):
+        stream = Mock()
+        stream.read.side_effect = OSError("read-secret")
+        stream.close.side_effect = OSError("close-secret")
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(partner.TOKEN_URL, 400, "", {}, stream)
+        with patch.object(partner.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaises(ValueError) as failure:
+                partner.partner_token("id", "secret")
+        self.assertEqual(str(failure.exception), "Partner token error response could not be closed")
+
     def test_existing_different_key_never_registers(self):
         with patch.object(partner, "verify_hosted_key"), \
              patch("builtins.input", return_value="CONTINUE"), \
