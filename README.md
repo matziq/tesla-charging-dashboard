@@ -234,6 +234,30 @@ See Tesla's [third-party token documentation](https://developer.tesla.com/docs/f
 The renewal flow, Tesla's localhost callback, charging-history permission, and
 account compatibility have not been verified against a real Tesla account.
 
+### Optional two-page pagination experiment
+
+This separate interactive tool tests the third-party SDK's **unverified**
+`pageNo=1` and `pageNo=2`, `pageSize=25` parameters. From the repository folder,
+run `python .\probe_tesla_pagination.py --env-file "D:\path\outside-git\.env"`
+in your own private terminal, or omit `--env-file` for masked prompts. Type
+`CONTINUE` to begin authorization, confirm file use separately if applicable,
+then complete Tesla sign-in and consent in your browser. The requested charging
+scope also permits charging commands, although this tool sends none. Immediately
+before the history GETs, review the billing, scope and unencrypted-storage
+warnings and type `FETCH`; press Enter at either gate to cancel. No automatic
+retry or registration POST is performed.
+
+The tool makes at most two read-only requests, saves responses in a new ignored
+`.private\pagination-probe-*` folder, and reports only page counts, whether
+reported totals match, and identifier overlap. The folder is unencrypted and
+inherits local access controls; Git ignore does not prevent other users,
+backups or sync services from seeing it. Protect it and never publish raw
+responses. If a request, save or parsing step fails, the tool stops; any earlier
+saved page remains in the displayed folder. Distinct pages and matching totals
+do not establish pagination semantics, a complete or stable history, or
+partner-key registration. These candidate pages can be selected individually
+for review in the local ledger; they are not automatically imported.
+
 ### Discover the personal-history schema
 
 This is a read-only **first-response discovery step**, not an automated refresh:

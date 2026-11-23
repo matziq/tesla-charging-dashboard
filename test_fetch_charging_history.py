@@ -3,6 +3,7 @@ import io
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -26,6 +27,26 @@ class Response:
 
 
 class FetchTests(unittest.TestCase):
+    def test_pagination_probe_is_fixed_to_two_pages_and_expected_query(self):
+        opener = Mock()
+        opener.open.return_value = Response(b"{}")
+        with patch.object(fetch.urllib.request, "build_opener", return_value=opener) as build:
+            for page in (1, 2):
+                fetch.fetch_probe_page("synthetic-token", page)
+                request = opener.open.call_args.args[0]
+                parts = urllib.parse.urlsplit(request.full_url)
+                self.assertEqual(parts.scheme + "://" + parts.netloc + parts.path, fetch.URL)
+                self.assertEqual(urllib.parse.parse_qs(parts.query),
+                                 {"pageNo": [str(page)], "pageSize": ["25"]})
+                self.assertEqual(request.method, "GET")
+                self.assertEqual(request.get_header("Content-type"), "application/json")
+                self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-token")
+                self.assertIsInstance(build.call_args.args[0], fetch.NoRedirect)
+            for invalid in (0, 3, True, "1"):
+                with self.assertRaises(ValueError):
+                    fetch.fetch_probe_page("synthetic-token", invalid)
+        self.assertEqual(opener.open.call_count, 2)
+
     def test_history_get_uses_teslas_required_json_content_type(self):
         opener = Mock()
         opener.open.return_value = Response(b"{}")
@@ -67,6 +88,7 @@ class FetchTests(unittest.TestCase):
     def test_http_and_network_failures_do_not_expose_details_or_save(self):
         errors = [
             urllib.error.HTTPError(fetch.URL, 401, "secret body", {}, None),
+            urllib.error.HTTPError(fetch.URL, 403, "secret body", {}, None),
             urllib.error.HTTPError(fetch.URL, 302, "redirect", {}, None),
             urllib.error.URLError("secret network detail"),
         ]

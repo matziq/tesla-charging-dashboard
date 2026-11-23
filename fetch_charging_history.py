@@ -5,6 +5,7 @@ import http.client
 import os
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -20,10 +21,21 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def fetch_first_page(token):
+    return _fetch_history(token, URL)
+
+
+def fetch_probe_page(token, page):
+    if type(page) is not int or page not in (1, 2):
+        raise ValueError("Pagination probe only permits page 1 or 2")
+    query = urllib.parse.urlencode({"pageNo": page, "pageSize": 25})
+    return _fetch_history(token, f"{URL}?{query}")
+
+
+def _fetch_history(token, url):
     if not token or not token.isascii() or any(c.isspace() or ord(c) < 33 or ord(c) == 127 for c in token):
         raise ValueError("Tesla access token must be a valid bearer token")
     request = urllib.request.Request(
-        URL, headers={
+        url, headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
             "Content-Type": "application/json",
