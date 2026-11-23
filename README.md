@@ -1,7 +1,8 @@
 # Dairy-trip charging ledger
 
-The current dashboard is a local Tkinter application. From this folder, run
-`python .\dairy_charging.py` using Python with Tkinter. It starts with an empty
+The current dashboard is a local Tkinter application. On Windows, double-click
+`Launch Dairy Dashboard.cmd` in this folder, or run `python .\dairy_charging.py`
+using Python with Tkinter. It starts with an empty
 ledger at `D:\AI_Output\TeslaChargingDashboard\ledger.sqlite3` on Windows
 (on other systems, `~/.local/share/tesla-charging-dashboard/ledger.sqlite3`).
 The database contains unencrypted personal information: protect the folder
@@ -19,10 +20,10 @@ only known paid amounts and trip distances and report missing values; odometer
 readings are never summed.
 
 No Tesla account, import, scheduling, or network access is required. The former
-static proof of concept is retired from the landing page and preserved in Git at
-the `archive-poc-2026-11-23` tag. The old `Dashboard.html` remains directly
-accessible and the prototype tools below remain available; the public landing
-page no longer links to the old dashboard. No existing records were migrated.
+static proof of concept is preserved in Git at the `archive-poc-2026-11-23` tag.
+Both former public dashboard URLs now serve retirement notices. The old CSV
+preview command is retired; Tesla discovery tools below remain available. No
+existing records were migrated. Historical Git content may still be public.
 
 ## Private refresh prototype
 
@@ -35,8 +36,8 @@ energy, is limited to business fleet owners. That does **not** prove those field
 are absent from personal history: their shape and availability remain unverified. Tesla's
 [scope documentation](https://developer.tesla.com/docs/fleet-api/authentication/overview)
 describes `vehicle_charging_cmds` as covering charging history, billed amount,
-location, and charging commands. The authorization flow and fetch below have not
-been tested with a Tesla account or real response.
+location, and charging commands. A user-authorized first-page request succeeded,
+but pagination and field meanings remain unverified.
 
 ### Application setup and local authorization
 
@@ -146,13 +147,14 @@ documents the registration and lookup endpoints; its indexed excerpt did not
 show the POST body, so the `{"domain": ...}` shape follows the
 [example in Tesla's vehicle-command repository](https://github.com/teslamotors/vehicle-command/issues/6)
 and a [third-party integration](https://teslasync.dev/guide/tesla-fleet-api.html).
-No live registration has been performed or verified.
+A registration POST returned HTTP 200, but the subsequent key lookup was
+forbidden; registration and key state remain unverified.
 
 The callback is separate from that public application domain. This prototype
 uses the exact redirect URI `http://localhost:8765/callback` and listens only
 on `127.0.0.1:8765`. Register that exact callback in the portal if accepted;
 Tesla's indexed documentation does not establish whether the portal accepts
-HTTP localhost callbacks, and this has not been tested with a real application.
+HTTP localhost callbacks; a user-authorized flow succeeded with this callback.
 If Tesla rejects it, do not forward a public callback to this local server or
 enter credentials into an untrusted site; a different verified design is needed.
 
@@ -245,44 +247,14 @@ are reported by status without saving their potentially sensitive bodies.
 The script has a fixed North American host; don't use it with a token for another
 regional audience. Do not send the response to a third-party tool or publish it.
 
-Until a real, privately inspected response and pagination scheme can be verified,
-prepare a complete, manually reviewed CSV from your available records, including
-the desired work/travel classifications. This import step does not parse the
-downloaded response, extract invoices, infer categories, or merge/deduplicate
-sessions. Repeated rows are kept because separate sessions can have identical values.
+The former `refresh_dashboard.py` CSV-to-HTML preview command is retired; it
+does not read the CSV or create output. Its original implementation and template
+remain in the archive tag. Do not copy archived personal data into a public
+folder. The new local ledger does not import historical or Tesla data. Verify
+the personal-history fields and pagination before implementing any future
+import. Never put tokens in the repository or publish raw responses.
 
-1. Make a UTF-8 CSV with exactly these headers: `Date,Vehicle,Location,State,kWh,Cost,Category`.
-   Dates must be `YYYY-MM-DD`; kWh and cost must be nonnegative numbers; category
-   must be `WORK` or `TRAVEL`. Include the **full** history you want displayed,
-   not just new rows. Amounts should be in USD, matching the dashboard.
-2. From this folder, run `python .\refresh_dashboard.py <path-to-reviewed-csv>`.
-   The command creates a new, git-ignored `.private\dashboard-*.html` preview
-   and prints its path. It leaves both tracked dashboards untouched. The preview
-   is based on `Dashboard.html`, not the separate static `index.html` landing page.
-3. Open the preview locally and review the sessions, totals, classifications,
-   and sensitive locations before deciding whether to publish anything. The
-   preview loads the same external JavaScript and CSS resources as `Dashboard.html`;
-   third-party scripts can access its data. It is not an offline-only page.
-   No automatic publishing is configured.
-
-`Dashboard.html`'s filtered CSV export also works as input after removing its
-blank line and summary footer; its `$/kWh` column is accepted and ignored.
-Confirm the export's filters include every session intended for the preview.
-The original records, CSV, and previews are private local files; do not commit
-or share them inadvertently. Git ignore rules are not access controls.
-
-Verify the actual personal-history response and pagination privately before
-mapping fields or implementing further automation. Never put tokens in the
-repository or publish raw responses.
-
-Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history test_authorize_tesla test_tesla_token_store test_register_tesla_partner test_check_tesla_client_id test_masked_input`.
-
-## Local preview
-
-```pwsh
-# Just open it
-Start-Process .\index.html
-```
+Run local checks with `python -m unittest test_dairy_charging test_refresh_dashboard test_fetch_charging_history test_authorize_tesla test_tesla_token_store test_register_tesla_partner test_check_tesla_client_id test_masked_input`.
 
 ## License
 

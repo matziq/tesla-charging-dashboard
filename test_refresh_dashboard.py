@@ -1,7 +1,4 @@
 import csv
-import contextlib
-import io
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,21 +71,13 @@ class RefreshTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             render_preview(block + "\n" + block, [])
 
-    def test_cli_writes_private_preview_from_real_template(self):
+    def test_retired_cli_does_not_read_or_write_data(self):
         self.write_csv([ROW])
-        template = (Path(__file__).parent / "Dashboard.html").read_text(encoding="utf-8")
-        (Path(self.temp.name) / "Dashboard.html").write_text(template, encoding="utf-8")
-        with patch.object(refresh_dashboard, "ROOT", Path(self.temp.name)), \
-             patch.object(sys, "argv", ["refresh_dashboard.py", str(self.path)]), \
-             contextlib.redirect_stdout(io.StringIO()):
-            refresh_dashboard.main()
-        previews = list((Path(self.temp.name) / ".private").glob("dashboard-*.html"))
-        self.assertEqual(len(previews), 1)
-        html = previews[0].read_text(encoding="utf-8")
-        self.assertIn('"Example, AZ"', html)
-        self.assertNotIn('"Aurora", "Tempe AZ"', html)
-        self.assertIn('href="../favicon.svg"', html)
-        self.assertEqual((Path(self.temp.name) / "Dashboard.html").read_text(encoding="utf-8"), template)
+        with patch.object(refresh_dashboard, "load_rows") as load:
+            with self.assertRaisesRegex(SystemExit, "preview is retired"):
+                refresh_dashboard.main()
+        load.assert_not_called()
+        self.assertFalse((Path(self.temp.name) / ".private").exists())
 
 
 if __name__ == "__main__":

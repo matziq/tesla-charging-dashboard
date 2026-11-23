@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""Create a private dashboard preview from a manually reviewed CSV."""
+"""Retired proof-of-concept preview helpers."""
 
-import argparse
 import csv
 import datetime
 import json
 import math
 import re
-import tempfile
-from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
 REQUIRED = ("Date", "Vehicle", "Location", "State", "kWh", "Cost", "Category")
 DATA_BLOCK = re.compile(
     r"(?P<prefix>    const data = )\[\n.*?\n    \];", re.DOTALL
@@ -75,22 +71,7 @@ def render_preview(template, rows):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("csv_file", type=Path, help="reviewed CSV containing the complete history")
-    args = parser.parse_args()
-    try:
-        rows = load_rows(args.csv_file)
-        html = render_preview((ROOT / "Dashboard.html").read_text(encoding="utf-8"), rows)
-        private_dir = ROOT / ".private"
-        private_dir.mkdir(exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", suffix=".html", prefix="dashboard-",
-            dir=private_dir, delete=False,
-        ) as output:
-            output.write(html)
-        print(f"Created private preview with {len(rows)} sessions: {output.name}")
-    except (OSError, UnicodeError, csv.Error, ValueError) as error:
-        parser.exit(1, f"Import failed: {error}\n")
+    raise SystemExit("The proof-of-concept preview is retired. Use dairy_charging.py for the local ledger.")
 
 
 if __name__ == "__main__":
