@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from fetch_charging_history import NoRedirect, fetch_first_page, save_response
 from masked_input import PrivateInputError, read_masked
+from tesla_credentials import load_local_credentials
 from tesla_token_store import TokenStore
 
 
@@ -169,15 +170,28 @@ def exchange_code(client_id, client_secret, code, verifier, offline=False):
     return payload if offline else access_token(payload)
 
 
-def offline_setup(store):
+def application_credentials(env_file):
+    if env_file is None:
+        client_id = read_masked("Tesla application client ID (masked): ").strip()
+        client_secret = read_masked("Tesla application client secret (masked): ")
+    else:
+        if sys.stdin is not sys.__stdin__ or not sys.stdin.isatty() or not sys.stderr.isatty():
+            raise PrivateInputError("a private interactive terminal is required")
+        print("Credentials will be read from the specified local file.")
+        if input("Type CONTINUE to use credentials, or press Enter to cancel: ").strip() != "CONTINUE":
+            raise ValueError("Canceled; no authenticated request was sent")
+        client_id, client_secret = load_local_credentials(env_file)
+    if not client_id or not client_secret:
+        raise ValueError("Client ID and client secret are required")
+    return client_id, client_secret
+
+
+def offline_setup(store, env_file=None):
     with store.locked():
         if store.path.exists():
             raise ValueError("Offline credentials already exist; do not overwrite them")
         print("Offline setup requests permission to renew access without signing in each time.")
-        client_id = read_masked("Tesla application client ID (masked): ").strip()
-        client_secret = read_masked("Tesla application client secret (masked): ")
-        if not client_id or not client_secret:
-            raise ValueError("Client ID and client secret are required")
+        client_id, client_secret = application_credentials(env_file)
         state = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(32)
         code = wait_for_code(client_id, state, verifier, offline=True)
@@ -211,18 +225,18 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--offline-setup", action="store_true", help="opt in to Windows-protected offline access")
     mode.add_argument("--renew", action="store_true", help="renew saved offline access and fetch one page")
+    parser.add_argument("--env-file", metavar="PATH", help="read application credentials from a local file")
     args = parser.parse_args(argv)
+    if args.renew and args.env_file is not None:
+        parser.error("--env-file cannot be used with --renew")
     try:
         if args.offline_setup:
-            offline_setup(TokenStore())
+            offline_setup(TokenStore(), args.env_file)
             return
         if args.renew:
             renew(TokenStore())
             return
-        client_id = read_masked("Tesla application client ID (masked): ").strip()
-        client_secret = read_masked("Tesla application client secret (masked): ")
-        if not client_id or not client_secret:
-            raise ValueError("Client ID and client secret are required")
+        client_id, client_secret = application_credentials(args.env_file)
         state = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(32)
         code = wait_for_code(client_id, state, verifier)

@@ -167,6 +167,13 @@ scope also allows charging commands even though this script never sends them.
 The browser may retain the callback URL in its history; treat it as sensitive.
 Don't share credentials, callback URLs, or raw responses in chat.
 
+To reuse the same local credential file supported by the partner helper, run
+`python .\authorize_tesla.py --env-file "D:\path\outside-git\.env"` instead.
+This option requires a private interactive terminal and explicit `CONTINUE`
+confirmation before reading the file. The file format and location restrictions
+above still apply; its contents are read literally, never executed, and are not
+printed. Complete sign-in and consent in your browser yourself.
+
 ### Optional offline renewal (Windows)
 
 After registration and ordinary authorization are working, opt in from a private
@@ -178,6 +185,9 @@ token are encrypted using Windows DPAPI for the current Windows user and stored
 in `%LOCALAPPDATA%\TeslaChargingDashboard\offline-token.bin`. DPAPI is not a
 substitute for protecting your Windows account and device. The existing default
 command remains unchanged. Setup refuses to overwrite an existing record.
+To use the local credential file for setup, add `--env-file "D:\path\outside-git\.env"`
+to the `--offline-setup` command; the same interactive confirmation is required.
+`--renew` does not use this file.
 
 Run `python .\authorize_tesla.py --renew` explicitly to exchange the saved refresh
 token and fetch one private first-page response. It needs no interactive prompts

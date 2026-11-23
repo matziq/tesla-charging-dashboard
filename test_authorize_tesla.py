@@ -10,6 +10,7 @@ import tempfile
 import unittest
 import urllib.error
 import urllib.parse
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import authorize_tesla as auth
@@ -183,6 +184,110 @@ class AuthorizationTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "Unsupported control character"):
                 auth.main([])
         wait.assert_not_called()
+
+    def test_file_credentials_are_used_only_after_confirmation(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "credentials.env"
+            original = b"CLIENT_ID=synthetic-client\nCLIENT_SECRET=synthetic-secret\n"
+            path.write_bytes(original)
+            output = io.StringIO()
+            with patch.object(auth.sys, "stdin", terminal), patch.object(auth.sys, "__stdin__", terminal), \
+                 patch.object(auth.sys, "stderr", stderr), \
+                 patch("builtins.input", return_value="CONTINUE"), \
+                 patch.object(auth, "read_masked") as masked, \
+                 patch.object(auth, "wait_for_code", return_value="code-secret") as wait, \
+                 patch.object(auth, "exchange_code", return_value="access-secret") as exchange, \
+                 patch.object(auth, "fetch_first_page", return_value=b"private-response"), \
+                 patch.object(auth, "save_response", return_value=".private/result.bin"), \
+                 contextlib.redirect_stdout(output):
+                auth.main(["--env-file", str(path)])
+            masked.assert_not_called()
+            self.assertEqual(wait.call_args.args[0], "synthetic-client")
+            self.assertEqual(exchange.call_args.args[:3],
+                             ("synthetic-client", "synthetic-secret", "code-secret"))
+            self.assertEqual(path.read_bytes(), original)
+            for value in ("synthetic-client", "synthetic-secret", "code-secret",
+                          "access-secret", "private-response", str(path)):
+                self.assertNotIn(value, output.getvalue())
+
+    def test_file_credentials_cancellation_never_reads_or_authorizes(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with patch.object(auth.sys, "stdin", terminal), patch.object(auth.sys, "__stdin__", terminal), \
+             patch.object(auth.sys, "stderr", stderr), patch("builtins.input", return_value=""), \
+             patch.object(auth, "load_local_credentials") as load, \
+             patch.object(auth, "wait_for_code") as wait, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "Canceled"):
+                auth.main(["--env-file", "unused"])
+        load.assert_not_called()
+        wait.assert_not_called()
+
+    def test_file_credentials_reject_noninteractive_without_reading(self):
+        terminal = Mock()
+        terminal.isatty.return_value = False
+        with patch.object(auth.sys, "stdin", terminal), patch.object(auth.sys, "__stdin__", terminal), \
+             patch.object(auth, "load_local_credentials") as load, \
+             patch.object(auth, "wait_for_code") as wait:
+            with self.assertRaisesRegex(SystemExit, "private interactive terminal"):
+                auth.main(["--env-file", "unused"])
+        load.assert_not_called()
+        wait.assert_not_called()
+
+    def test_invalid_file_is_not_disclosed_or_authorized(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "credentials.env"
+            path.write_text("CLIENT_ID=synthetic-id\nCLIENT_SECRET='synthetic-secret'\n", encoding="utf-8")
+            with patch.object(auth.sys, "stdin", terminal), patch.object(auth.sys, "__stdin__", terminal), \
+                 patch.object(auth.sys, "stderr", stderr), patch("builtins.input", return_value="CONTINUE"), \
+                 patch.object(auth, "wait_for_code") as wait, contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as failure:
+                    auth.main(["--env-file", str(path)])
+            for value in ("synthetic-id", "synthetic-secret", str(path)):
+                self.assertNotIn(value, str(failure.exception))
+            wait.assert_not_called()
+
+    def test_renew_rejects_env_file_without_reading_or_request(self):
+        with patch.object(auth, "load_local_credentials") as load, \
+             patch.object(auth, "renew") as renew, contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                auth.main(["--renew", "--env-file", "unused"])
+        load.assert_not_called()
+        renew.assert_not_called()
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_offline_setup_can_use_confirmed_file_credentials(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "credentials.env"
+            path.write_text("CLIENT_ID=client\nCLIENT_SECRET=synthetic-secret\n", encoding="utf-8")
+            store = auth.TokenStore(Path(directory) / "store")
+            with patch.object(auth.sys, "stdin", terminal), patch.object(auth.sys, "__stdin__", terminal), \
+                 patch.object(auth.sys, "stderr", stderr), patch("builtins.input", return_value="CONTINUE"), \
+                 patch.object(auth, "TokenStore", return_value=store), \
+                 patch.object(auth, "read_masked") as masked, \
+                 patch.object(auth, "wait_for_code", return_value="code") as wait, \
+                 patch.object(auth, "exchange_code", return_value={"refresh_token": "refresh-secret"}) as exchange, \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                auth.main(["--offline-setup", "--env-file", str(path)])
+            masked.assert_not_called()
+            self.assertTrue(wait.call_args.kwargs["offline"])
+            self.assertEqual(exchange.call_args.args[:3], ("client", "synthetic-secret", "code"))
+            self.assertNotIn("synthetic-secret", output.getvalue())
+            with store.locked():
+                self.assertEqual(store.read(), ("client", "refresh-secret", "ready"))
 
     def test_offline_scope_is_explicit(self):
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(
