@@ -34,6 +34,10 @@ OAUTH_ERROR_CATEGORIES = {category: f"OAuth error: {category}" for category in (
 )}
 
 
+class PartnerLookupForbidden(ValueError):
+    pass
+
+
 def oauth_error_summary(error):
     try:
         body = error.read(MAX_OAUTH_ERROR + 1)
@@ -57,7 +61,7 @@ def oauth_error_summary(error):
     return OAUTH_ERROR_CATEGORIES.get(category, "OAuth error response: JSON error category unrecognized")
 
 
-def request_bytes(request, label, allow_not_found=False, oauth_error=False):
+def request_bytes(request, label, allow_not_found=False, oauth_error=False, lookup_forbidden=False):
     try:
         with urllib.request.build_opener(NoRedirect()).open(request, timeout=30) as response:
             if response.status != 200:
@@ -67,6 +71,8 @@ def request_bytes(request, label, allow_not_found=False, oauth_error=False):
         try:
             if allow_not_found and error.code == 404:
                 return None
+            if lookup_forbidden and error.code == 403:
+                raise PartnerLookupForbidden(f"{label} returned HTTP 403") from None
             summary = oauth_error_summary(error) if oauth_error else None
             suffix = f" ({summary})" if summary else ""
             raise ValueError(f"{label} returned HTTP {error.code}{suffix}") from None
@@ -142,7 +148,7 @@ def registered_key(token):
         },
         method="GET",
     )
-    body = request_bytes(request, "Partner key lookup", allow_not_found=True)
+    body = request_bytes(request, "Partner key lookup", allow_not_found=True, lookup_forbidden=True)
     if body is None:
         return None
     result = read_json(body, "Partner key lookup").get("response")
@@ -213,9 +219,21 @@ def load_local_credentials(filename):
     return fields["CLIENT_ID"], fields["CLIENT_SECRET"]
 
 
-def main(env_file=None):
+def check_registered_key(token, first_registration):
     try:
-        if env_file is not None and (
+        key = registered_key(token)
+    except PartnerLookupForbidden:
+        if not first_registration:
+            raise
+        key = None
+    if key is not None and not key_matches(key):
+        raise ValueError("Tesla has a different registered key; no registration was attempted")
+    return key
+
+
+def main(env_file=None, first_registration=False):
+    try:
+        if (env_file is not None or first_registration) and (
             sys.stdin is not sys.__stdin__ or not sys.stdin.isatty() or not sys.stderr.isatty()
         ):
             raise PrivateInputError("a private interactive terminal is required")
@@ -234,11 +252,26 @@ def main(env_file=None):
         if not client_id or not client_secret:
             raise ValueError("Client ID and client secret are required")
         token = partner_token(client_id, client_secret)
-        key = registered_key(token)
+        key = check_registered_key(token, first_registration)
         if key is not None:
-            if not key_matches(key):
-                raise ValueError("Tesla has a different registered key; no registration was attempted")
             print("Tesla already has the expected public key registered in North America.")
+            return
+        if first_registration:
+            print("First-registration mode: the existing registered key could not be verified.")
+            print(f"Domain: {DOMAIN}; region: North America.")
+            print("A registration POST may replace a different key and disrupt other integrations.")
+            print("Do not continue unless you control the domain and knowingly accept that risk.")
+            verify_hosted_key()
+            key = check_registered_key(token, first_registration=True)
+            if key is not None:
+                print("Tesla already has the expected public key registered in North America.")
+                return
+            print("The existing registered key is still unverified.")
+            if input("Type I CONTROL THE DOMAIN AND ACCEPT KEY REPLACEMENT RISK to proceed: ").strip() != \
+                    "I CONTROL THE DOMAIN AND ACCEPT KEY REPLACEMENT RISK":
+                raise ValueError("Canceled; no registration POST was sent")
+            register(token)
+            print("Tesla's North American partner registration returned the expected public key.")
             return
         print("Tesla returned HTTP 404 for the key lookup; this does not prove registration is absent.")
         print("The registration POST can change the domain's registered key.")
@@ -264,9 +297,16 @@ def main(env_file=None):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 1:
-        main()
-    elif len(sys.argv) == 3 and sys.argv[1] == "--env-file":
-        main(sys.argv[2])
-    else:
-        raise SystemExit("Usage: python register_tesla_partner.py [--env-file PATH]")
+    args = sys.argv[1:]
+    first_registration = False
+    env_file = None
+    while args:
+        if args[0] == "--first-registration" and not first_registration:
+            first_registration = True
+            args = args[1:]
+        elif args[0] == "--env-file" and len(args) >= 2 and env_file is None:
+            env_file = args[1]
+            args = args[2:]
+        else:
+            raise SystemExit("Usage: python register_tesla_partner.py [--env-file PATH] [--first-registration]")
+    main(env_file, first_registration)

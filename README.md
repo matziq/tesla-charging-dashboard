@@ -74,7 +74,7 @@ any particular live response is not known in advance.
 If verification fails or a POST fails, check Tesla before retrying because the
 outcome may be unknown.
 
-If partner key lookup returns HTTP 403, the helper stops without attempting
+By default, if partner key lookup returns HTTP 403, the helper stops without attempting
 registration. Tesla lists both authorization/scope issues and an unregistered
 account as possible causes of 403; the status alone does not establish whether
 the domain has a registered key. Check the application's access and regional
@@ -83,6 +83,19 @@ content-type header required by Tesla's
 [API conventions](https://developer.tesla.com/docs/fleet-api/getting-started/conventions);
 Tesla associates a missing header with HTTP 406, so it is not established as
 the cause of a 403.
+
+For a first registration, an explicit `--first-registration` option is
+available in a private terminal, alongside `--env-file` if needed. This is
+separate from the safer default: if the lookup returns 403 or 404, the
+registered key remains unknown. The helper rechecks the hosted key and lookup,
+stops on any known different key or other lookup failure, and warns that the
+POST may replace an existing key and disrupt other integrations. Immediately
+before the POST it requires you to type
+`I CONTROL THE DOMAIN AND ACCEPT KEY REPLACEMENT RISK`. Do not continue if
+you cannot accept that risk; a lookup failure is not proof of first
+registration. Tesla does not provide an atomic check-and-register operation,
+so even a successful check cannot rule out a concurrent change. If the POST or
+its verification fails, the outcome is unconfirmed: check Tesla before retrying.
 
 As an alternative to entering credentials at the prompts, explicitly pass a
 local file outside all Git repositories:

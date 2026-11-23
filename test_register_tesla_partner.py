@@ -161,9 +161,10 @@ class PartnerTests(unittest.TestCase):
             self.assertNotIn("private detail", str(failure.exception))
 
     def test_failed_registration_request_reports_uncertain_outcome(self):
-        with patch.object(partner, "request_bytes", side_effect=ValueError("Network error")):
+        with patch.object(partner, "request_bytes", side_effect=ValueError("Network error")) as request:
             with self.assertRaisesRegex(ValueError, "outcome is unconfirmed"):
                 partner.register("token")
+        self.assertEqual(request.call_count, 1)
 
     def test_lookup_rejects_unexpected_or_invalid_response(self):
         for body in (b"not-json", b'{"response":{}}', b'{"response":"unknown"}'):
@@ -345,6 +346,128 @@ class PartnerTests(unittest.TestCase):
         stream.read.assert_not_called()
         register.assert_not_called()
         self.assertNotIn("token-secret", output.getvalue())
+
+    def test_explicit_first_registration_requires_risk_attestation(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        for answer, should_register in (("", False), ("REGISTER", False),
+                                        ("I CONTROL THE DOMAIN AND ACCEPT KEY REPLACEMENT RISK", True)):
+            with self.subTest(should_register=should_register, answer=answer):
+                forbidden = partner.PartnerLookupForbidden("Partner key lookup returned HTTP 403")
+                with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+                     patch.object(partner.sys, "stderr", stderr), \
+                     patch.object(partner, "verify_hosted_key") as verify, \
+                     patch("builtins.input", side_effect=["CONTINUE", answer]), \
+                     patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
+                     patch.object(partner, "partner_token", return_value="token-secret"), \
+                     patch.object(partner, "registered_key", side_effect=[forbidden, forbidden]) as lookup, \
+                     patch.object(partner, "register") as register, \
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                    if should_register:
+                        partner.main(first_registration=True)
+                    else:
+                        with self.assertRaisesRegex(SystemExit, "no registration POST"):
+                            partner.main(first_registration=True)
+                self.assertEqual(verify.call_count, 2)
+                self.assertEqual(lookup.call_count, 2)
+                self.assertEqual(register.call_count, int(should_register))
+                self.assertIn("may replace a different key and disrupt other integrations", output.getvalue())
+                for secret in ("id-secret", "client-secret", "token-secret"):
+                    self.assertNotIn(secret, output.getvalue())
+
+    def test_first_registration_rejects_newly_observed_different_key(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        forbidden = partner.PartnerLookupForbidden("Partner key lookup returned HTTP 403")
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner.sys, "stderr", stderr), patch.object(partner, "verify_hosted_key"), \
+             patch("builtins.input", return_value="CONTINUE") as prompt, \
+             patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
+             patch.object(partner, "partner_token", return_value="token-secret"), \
+             patch.object(partner, "registered_key", side_effect=[forbidden, "different key"]), \
+             patch.object(partner, "register") as register, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "different registered key"):
+                partner.main(first_registration=True)
+        register.assert_not_called()
+        prompt.assert_called_once()
+
+    def test_attestation_is_last_step_before_registration(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        events = []
+        def verify():
+            events.append("verify")
+        def lookup(token):
+            events.append("lookup")
+            raise partner.PartnerLookupForbidden("Partner key lookup returned HTTP 403")
+        def prompt(message):
+            if not events or events[-1] != "lookup":
+                return "CONTINUE"
+            events.append("attest")
+            return "I CONTROL THE DOMAIN AND ACCEPT KEY REPLACEMENT RISK"
+        def register(token):
+            events.append("post")
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner.sys, "stderr", stderr), \
+             patch.object(partner, "verify_hosted_key", side_effect=verify), \
+             patch("builtins.input", side_effect=prompt), \
+             patch.object(partner, "read_masked", side_effect=["id", "secret"]), \
+             patch.object(partner, "partner_token", return_value="token"), \
+             patch.object(partner, "registered_key", side_effect=lookup), \
+             patch.object(partner, "register", side_effect=register), \
+             contextlib.redirect_stdout(io.StringIO()):
+            partner.main(first_registration=True)
+        self.assertEqual(events, ["verify", "lookup", "verify", "lookup", "attest", "post"])
+
+    def test_first_registration_does_not_ignore_other_lookup_errors(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner.sys, "stderr", stderr), patch.object(partner, "verify_hosted_key"), \
+             patch("builtins.input", return_value="CONTINUE"), \
+             patch.object(partner, "read_masked", side_effect=["id", "secret"]), \
+             patch.object(partner, "partner_token", return_value="token"), \
+             patch.object(partner, "registered_key", side_effect=ValueError("Partner key lookup returned HTTP 500")), \
+             patch.object(partner, "register") as register, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "HTTP 500"):
+                partner.main(first_registration=True)
+        register.assert_not_called()
+
+    def test_first_registration_stops_if_recheck_fails(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        forbidden = partner.PartnerLookupForbidden("Partner key lookup returned HTTP 403")
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner.sys, "stderr", stderr), \
+             patch.object(partner, "verify_hosted_key", side_effect=[None, ValueError("key mismatch")]), \
+             patch("builtins.input", return_value="CONTINUE") as prompt, \
+             patch.object(partner, "read_masked", side_effect=["id", "secret"]), \
+             patch.object(partner, "partner_token", return_value="token"), \
+             patch.object(partner, "registered_key", side_effect=forbidden), \
+             patch.object(partner, "register") as register, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "key mismatch"):
+                partner.main(first_registration=True)
+        register.assert_not_called()
+        prompt.assert_called_once()
+
+    def test_first_registration_requires_interactive_terminal(self):
+        terminal = Mock()
+        terminal.isatty.return_value = False
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner, "verify_hosted_key") as verify:
+            with self.assertRaisesRegex(SystemExit, "private interactive terminal"):
+                partner.main(first_registration=True)
+        verify.assert_not_called()
 
     def test_lookup_404_needs_second_explicit_confirmation(self):
         with patch.object(partner, "verify_hosted_key"), \
