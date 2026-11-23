@@ -271,6 +271,23 @@ do not establish pagination semantics, a complete or stable history, or
 partner-key registration. These candidate pages can be selected together or
 individually for review in the local ledger; they are not automatically imported.
 
+### Check saved page structure locally
+
+Double-click `Launch Tesla Page Check.cmd` beside the standalone dashboard, then
+select the first and second saved response in the file dialogs. Alternatively,
+run `python .\check_tesla_page_structure.py "D:\private\page-1.bin" "D:\private\page-2.bin"`
+in a private terminal. The checker only reads the selected files; it makes no
+network requests and writes no response files. Its fixed-label report gives
+aggregate counts-and-types comparisons without showing record values, file
+paths, identifiers or raw error details. A failed or canceled check produces no
+successful report; empty arrays are shown as not applicable for field coverage.
+
+Field presence and type do not establish meaning, units, whether payment was
+actually made, or whether unlisted fields exist. The sample names checked for
+mileage and energy are not an exhaustive schema. Even matching totals without
+overlap cannot prove completeness or stable pagination. Keep uncertain values
+manual, and do not share raw responses.
+
 ### Discover the personal-history schema
 
 This is a read-only **first-response discovery step**, not an automated refresh:
