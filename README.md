@@ -167,6 +167,38 @@ scope also allows charging commands even though this script never sends them.
 The browser may retain the callback URL in its history; treat it as sensitive.
 Don't share credentials, callback URLs, or raw responses in chat.
 
+### Optional offline renewal (Windows)
+
+After registration and ordinary authorization are working, opt in from a private
+interactive terminal with `python .\authorize_tesla.py --offline-setup`. Complete
+Tesla sign-in and consent yourself. This separately requests `offline_access`
+along with `openid` and `vehicle_charging_cmds`; it does not fetch history during
+setup. The client secret and access token are not saved. The client ID and refresh
+token are encrypted using Windows DPAPI for the current Windows user and stored
+in `%LOCALAPPDATA%\TeslaChargingDashboard\offline-token.bin`. DPAPI is not a
+substitute for protecting your Windows account and device. The existing default
+command remains unchanged. Setup refuses to overwrite an existing record.
+
+Run `python .\authorize_tesla.py --renew` explicitly to exchange the saved refresh
+token and fetch one private first-page response. It needs no interactive prompts
+and installs no scheduled task. It does not interpret or publish the response. A
+local lock rejects overlapping setup or renewal runs. Before exchanging a refresh
+token, the helper marks the encrypted record pending; it saves the newly rotated
+token before fetching history. An interrupted or uncertain exchange leaves the
+record pending and blocks subsequent renewals rather than automatically retrying.
+Sudden power loss or storage failure can still defeat filesystem durability.
+
+If renewal is blocked by a pending record, do not repeatedly run it. With all
+helper processes stopped, privately move `offline-token.bin` to a secure backup
+outside the repository and repeat `--offline-setup` to obtain fresh consent. Do
+not share or publish the backup. Tesla documents that the most recently used
+refresh token may remain usable for up to 24 hours if saving fails, but this
+helper does not automatically retry it. Tesla also documents a three-month
+refresh-token lifetime; revoked or expired authorization requires new consent.
+See Tesla's [third-party token documentation](https://developer.tesla.com/docs/fleet-api/authentication/third-party-tokens).
+The renewal flow, Tesla's localhost callback, charging-history permission, and
+account compatibility have not been verified against a real Tesla account.
+
 ### Discover the personal-history schema
 
 This is a read-only **first-response discovery step**, not an automated refresh:
@@ -227,7 +259,7 @@ Verify the actual personal-history response and pagination privately before
 mapping fields or implementing further automation. Never put tokens in the
 repository or publish raw responses.
 
-Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history test_authorize_tesla test_register_tesla_partner test_check_tesla_client_id test_masked_input`.
+Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history test_authorize_tesla test_tesla_token_store test_register_tesla_partner test_check_tesla_client_id test_masked_input`.
 
 ## Local preview
 

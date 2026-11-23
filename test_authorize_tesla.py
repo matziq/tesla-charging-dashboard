@@ -4,7 +4,9 @@ import hashlib
 import http.client
 import io
 import json
+import os
 import threading
+import tempfile
 import unittest
 import urllib.error
 import urllib.parse
@@ -169,7 +171,7 @@ class AuthorizationTests(unittest.TestCase):
              patch.object(auth, "fetch_first_page", return_value=b"private-data") as fetch, \
              patch.object(auth, "save_response", return_value=".private/result.bin") as save, \
              contextlib.redirect_stdout(stdout):
-            auth.main()
+            auth.main([])
         fetch.assert_called_once_with("token-secret")
         save.assert_called_once_with(b"private-data")
         for secret in ("client-secret", "code-secret", "token-secret", "private-data"):
@@ -179,8 +181,166 @@ class AuthorizationTests(unittest.TestCase):
         with patch.object(auth, "read_masked", side_effect=auth.PrivateInputError("Unsupported control character")), \
              patch.object(auth, "wait_for_code") as wait:
             with self.assertRaisesRegex(SystemExit, "Unsupported control character"):
-                auth.main()
+                auth.main([])
         wait.assert_not_called()
+
+    def test_offline_scope_is_explicit(self):
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(
+            auth.authorization_url("client", "state", "v" * 43, offline=True)
+        ).query)
+        self.assertEqual(set(query["scope"][0].split()),
+                         {"openid", "vehicle_charging_cmds", "offline_access"})
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_setup_saves_only_offline_credentials_and_wont_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = auth.TokenStore(directory)
+            output = io.StringIO()
+            with patch.object(auth, "read_masked", side_effect=["client", "client-secret"]), \
+                 patch.object(auth, "wait_for_code", return_value="code") as wait, \
+                 patch.object(auth, "exchange_code", return_value={
+                     "access_token": "access-secret", "refresh_token": "refresh-secret"
+                 }), contextlib.redirect_stdout(output):
+                auth.offline_setup(store)
+                with self.assertRaisesRegex(ValueError, "already exist"):
+                    auth.offline_setup(store)
+            wait.assert_called_once()
+            self.assertTrue(wait.call_args.kwargs["offline"])
+            with store.locked():
+                self.assertEqual(store.read(), ("client", "refresh-secret", "ready"))
+            for value in ("client-secret", "access-secret", "refresh-secret"):
+                self.assertNotIn(value, output.getvalue())
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_renew_saves_rotation_before_fetch_with_documented_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = auth.TokenStore(directory)
+            with store.locked():
+                store.write("synthetic-client", "old-secret")
+            opener = Mock()
+            opener.open.return_value = TokenResponse(
+                b'{"access_token":"access-secret","refresh_token":"new-secret"}')
+
+            def fetch(token):
+                self.assertEqual(token, "access-secret")
+                self.assertEqual(store.read(), ("synthetic-client", "new-secret", "ready"))
+                return b"private-response"
+
+            stdout = io.StringIO()
+            with patch.object(auth.urllib.request, "build_opener", return_value=opener) as build, \
+                 patch.object(auth, "fetch_first_page", side_effect=fetch), \
+                 patch.object(auth, "save_response", return_value=".private/result.bin"), \
+                 contextlib.redirect_stdout(stdout):
+                auth.renew(store)
+            self.assertIsInstance(build.call_args.args[0], auth.NoRedirect)
+            request = opener.open.call_args.args[0]
+            self.assertEqual(urllib.parse.parse_qs(request.data.decode()), {
+                "grant_type": ["refresh_token"], "client_id": ["synthetic-client"],
+                "refresh_token": ["old-secret"],
+            })
+            for secret in ("old-secret", "new-secret", "access-secret", "private-response"):
+                self.assertNotIn(secret, stdout.getvalue())
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_failed_refresh_leaves_pending_and_blocks_future_requests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = auth.TokenStore(directory)
+            with store.locked():
+                store.write("client", "old-secret")
+            with patch.object(auth, "token_request", side_effect=ValueError("HTTP 400")) as request, \
+                 patch.object(auth, "fetch_first_page") as fetch:
+                with self.assertRaisesRegex(ValueError, "uncertain"):
+                    auth.renew(store)
+                with self.assertRaisesRegex(ValueError, "manual recovery"):
+                    auth.renew(store)
+            request.assert_called_once()
+            fetch.assert_not_called()
+            with store.locked():
+                self.assertEqual(store.read(), ("client", "old-secret", "pending"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_invalid_rotated_token_prevents_fetch_and_leaves_pending(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = auth.TokenStore(directory)
+            with store.locked():
+                store.write("client", "old-secret")
+            with patch.object(auth, "token_request", return_value={
+                "access_token": "access-secret", "refresh_token": "secret\n"
+            }), patch.object(auth, "fetch_first_page") as fetch:
+                with self.assertRaises(ValueError) as failure:
+                    auth.renew(store)
+            self.assertNotIn("secret", str(failure.exception))
+            fetch.assert_not_called()
+            with store.locked():
+                self.assertEqual(store.read(), ("client", "old-secret", "pending"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_rotation_survives_missing_access_token(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = auth.TokenStore(directory)
+            with store.locked():
+                store.write("client", "old-secret")
+            with patch.object(auth, "token_request", return_value={"refresh_token": "new-secret"}), \
+                 patch.object(auth, "fetch_first_page") as fetch:
+                with self.assertRaisesRegex(ValueError, "access token"):
+                    auth.renew(store)
+            fetch.assert_not_called()
+            with store.locked():
+                self.assertEqual(store.read(), ("client", "new-secret", "ready"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_pending_write_failure_stops_before_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = auth.TokenStore(directory)
+            with store.locked():
+                store.write("client", "old-secret")
+            with patch.object(store, "write", side_effect=ValueError("storage unavailable")), \
+                 patch.object(auth, "token_request") as request:
+                with self.assertRaisesRegex(ValueError, "storage unavailable"):
+                    auth.renew(store)
+            request.assert_not_called()
+            with store.locked():
+                self.assertEqual(store.read(), ("client", "old-secret", "ready"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_http_failure_does_not_expose_body_and_blocks_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = auth.TokenStore(directory)
+            with store.locked():
+                store.write("client", "old-secret")
+            opener = Mock()
+            opener.open.side_effect = urllib.error.HTTPError(
+                auth.TOKEN_URL, 401, "body-secret", {}, io.BytesIO(b"response-secret"))
+            with patch.object(auth.urllib.request, "build_opener", return_value=opener):
+                with self.assertRaises(ValueError) as failure:
+                    auth.renew(store)
+            for value in ("old-secret", "body-secret", "response-secret"):
+                self.assertNotIn(value, str(failure.exception))
+            self.assertIn("HTTP 401", str(failure.exception))
+            with store.locked():
+                self.assertEqual(store.read(), ("client", "old-secret", "pending"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows DPAPI required")
+    def test_offline_setup_requires_private_interactive_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = auth.TokenStore(directory)
+            with patch.object(auth, "TokenStore", return_value=store), \
+                 patch.object(auth, "read_masked", side_effect=EOFError), \
+                 patch.object(auth, "wait_for_code") as wait, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(SystemExit, "private interactive terminal"):
+                    auth.main(["--offline-setup"])
+            wait.assert_not_called()
+            self.assertFalse(store.path.exists())
+
+    def test_renew_mode_never_prompts(self):
+        store = Mock()
+        with patch.object(auth, "TokenStore", return_value=store), \
+             patch.object(auth, "renew") as renew, \
+             patch.object(auth, "read_masked") as prompt:
+            auth.main(["--renew"])
+        renew.assert_called_once_with(store)
+        prompt.assert_not_called()
 
 
 if __name__ == "__main__":

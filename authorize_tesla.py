@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Authorize locally with Tesla and save one private history response."""
 
+import argparse
 import base64
 import hashlib
 import hmac
@@ -17,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from fetch_charging_history import NoRedirect, fetch_first_page, save_response
 from masked_input import PrivateInputError, read_masked
+from tesla_token_store import TokenStore
 
 
 REDIRECT_URI = "http://localhost:8765/callback"
@@ -26,7 +28,7 @@ AUDIENCE = "https://fleet-api.prd.na.vn.cloud.tesla.com"
 CALLBACK_SECONDS = 300
 
 
-def authorization_url(client_id, state, verifier):
+def authorization_url(client_id, state, verifier, offline=False):
     challenge = base64.urlsafe_b64encode(
         hashlib.sha256(verifier.encode("ascii")).digest()
     ).rstrip(b"=").decode("ascii")
@@ -34,7 +36,7 @@ def authorization_url(client_id, state, verifier):
         "client_id": client_id,
         "redirect_uri": REDIRECT_URI,
         "response_type": "code",
-        "scope": "openid vehicle_charging_cmds",
+        "scope": "openid vehicle_charging_cmds" + (" offline_access" if offline else ""),
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
@@ -95,7 +97,7 @@ class LoopbackServer(HTTPServer):
         return request, address
 
 
-def wait_for_code(client_id, state, verifier):
+def wait_for_code(client_id, state, verifier, offline=False):
     try:
         with LoopbackServer(("127.0.0.1", 8765), CallbackHandler) as server:
             server.expected_host = "localhost:8765"
@@ -103,7 +105,7 @@ def wait_for_code(client_id, state, verifier):
             server.result = None
             server.timeout = 1
             try:
-                opened = webbrowser.open(authorization_url(client_id, state, verifier))
+                opened = webbrowser.open(authorization_url(client_id, state, verifier, offline=offline))
             except webbrowser.Error:
                 opened = False
             if not opened:
@@ -121,16 +123,8 @@ def wait_for_code(client_id, state, verifier):
         raise ValueError("Could not use the loopback listener on port 8765; check whether it is in use") from None
 
 
-def exchange_code(client_id, client_secret, code, verifier):
-    data = urllib.parse.urlencode({
-        "grant_type": "authorization_code",
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "code": code,
-        "code_verifier": verifier,
-        "audience": AUDIENCE,
-        "redirect_uri": REDIRECT_URI,
-    }).encode("ascii")
+def token_request(fields):
+    data = urllib.parse.urlencode(fields).encode("ascii")
     request = urllib.request.Request(
         TOKEN_URL, data=data,
         headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
@@ -151,13 +145,80 @@ def exchange_code(client_id, client_secret, code, verifier):
         payload = json.loads(body)
     except (UnicodeError, ValueError):
         raise ValueError("Tesla token response was not valid JSON") from None
-    if not isinstance(payload, dict) or not isinstance(payload.get("access_token"), str) or not payload["access_token"]:
+    if not isinstance(payload, dict):
+        raise ValueError("Tesla token response was not a JSON object")
+    return payload
+
+
+def access_token(payload):
+    if not isinstance(payload.get("access_token"), str) or not payload["access_token"]:
         raise ValueError("Tesla token response did not contain an access token")
     return payload["access_token"]
 
 
-def main():
+def exchange_code(client_id, client_secret, code, verifier, offline=False):
+    payload = token_request({
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "code_verifier": verifier,
+        "audience": AUDIENCE,
+        "redirect_uri": REDIRECT_URI,
+    })
+    return payload if offline else access_token(payload)
+
+
+def offline_setup(store):
+    with store.locked():
+        if store.path.exists():
+            raise ValueError("Offline credentials already exist; do not overwrite them")
+        print("Offline setup requests permission to renew access without signing in each time.")
+        client_id = read_masked("Tesla application client ID (masked): ").strip()
+        client_secret = read_masked("Tesla application client secret (masked): ")
+        if not client_id or not client_secret:
+            raise ValueError("Client ID and client secret are required")
+        state = secrets.token_urlsafe(32)
+        verifier = secrets.token_urlsafe(32)
+        code = wait_for_code(client_id, state, verifier, offline=True)
+        payload = exchange_code(client_id, client_secret, code, verifier, offline=True)
+        store.write(client_id, payload.get("refresh_token"))
+        print("Offline authorization saved in Windows per-user encrypted storage.")
+
+
+def renew(store):
+    with store.locked():
+        client_id, previous, state = store.read()
+        if state != "ready":
+            raise ValueError("A previous refresh has an uncertain outcome; manual recovery is required")
+        store.write(client_id, previous, state="pending")
+        try:
+            payload = token_request({
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "refresh_token": previous,
+            })
+            store.write(client_id, payload.get("refresh_token"))
+        except ValueError as error:
+            raise ValueError(f"{error}. Refresh outcome may be uncertain; do not retry automatically") from None
+        token = access_token(payload)
+        body = fetch_first_page(token)
+        print(f"Saved first response for private inspection: {save_response(body)}")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--offline-setup", action="store_true", help="opt in to Windows-protected offline access")
+    mode.add_argument("--renew", action="store_true", help="renew saved offline access and fetch one page")
+    args = parser.parse_args(argv)
     try:
+        if args.offline_setup:
+            offline_setup(TokenStore())
+            return
+        if args.renew:
+            renew(TokenStore())
+            return
         client_id = read_masked("Tesla application client ID (masked): ").strip()
         client_secret = read_masked("Tesla application client secret (masked): ")
         if not client_id or not client_secret:
