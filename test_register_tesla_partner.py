@@ -147,6 +147,8 @@ class PartnerTests(unittest.TestCase):
         self.assertEqual(registration.get_header("Authorization"), "Bearer token-secret")
         self.assertEqual(lookup.full_url, partner.LOOKUP_URL)
         self.assertEqual(lookup.method, "GET")
+        self.assertEqual(lookup.get_header("Content-type"), "application/json")
+        self.assertEqual(lookup.get_header("Authorization"), "Bearer token-secret")
 
     def test_post_success_without_verified_lookup_is_uncertain(self):
         with patch.object(partner, "request_bytes", side_effect=[b'{}', None]):
@@ -325,6 +327,24 @@ class PartnerTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "different registered key"):
                 partner.main()
             register.assert_not_called()
+
+    def test_lookup_403_never_registers_or_discloses_body(self):
+        stream = Mock(wraps=io.BytesIO(b'{"error":"private-detail","token":"token-secret"}'))
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(partner.LOOKUP_URL, 403, "", {}, stream)
+        with patch.object(partner, "verify_hosted_key"), \
+            patch("builtins.input", return_value="CONTINUE"), \
+            patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
+            patch.object(partner, "partner_token", return_value="token-secret"), \
+            patch.object(partner.urllib.request, "build_opener", return_value=opener), \
+            patch.object(partner, "register") as register, \
+            contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(SystemExit) as failure:
+               partner.main()
+        self.assertEqual(str(failure.exception), "Registration failed: Partner key lookup returned HTTP 403")
+        stream.read.assert_not_called()
+        register.assert_not_called()
+        self.assertNotIn("token-secret", output.getvalue())
 
     def test_lookup_404_needs_second_explicit_confirmation(self):
         with patch.object(partner, "verify_hosted_key"), \

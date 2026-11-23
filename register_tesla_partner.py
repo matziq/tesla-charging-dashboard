@@ -135,7 +135,11 @@ def partner_token(client_id, client_secret):
 
 def registered_key(token):
     request = urllib.request.Request(
-        LOOKUP_URL, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        LOOKUP_URL, headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
         method="GET",
     )
     body = request_bytes(request, "Partner key lookup", allow_not_found=True)

@@ -74,6 +74,16 @@ any particular live response is not known in advance.
 If verification fails or a POST fails, check Tesla before retrying because the
 outcome may be unknown.
 
+If partner key lookup returns HTTP 403, the helper stops without attempting
+registration. Tesla lists both authorization/scope issues and an unregistered
+account as possible causes of 403; the status alone does not establish whether
+the domain has a registered key. Check the application's access and regional
+registration with Tesla before taking action. The lookup includes the JSON
+content-type header required by Tesla's
+[API conventions](https://developer.tesla.com/docs/fleet-api/getting-started/conventions);
+Tesla associates a missing header with HTTP 406, so it is not established as
+the cause of a 403.
+
 As an alternative to entering credentials at the prompts, explicitly pass a
 local file outside all Git repositories:
 `python .\register_tesla_partner.py --env-file "D:\path\outside-git\.env"`.
