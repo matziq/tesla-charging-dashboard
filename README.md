@@ -43,13 +43,25 @@ all source fee entries and tiers for the selected candidate, including any
 additional fee fields, without collapsing them. The displayed JSON is private:
 avoid sharing it. Missing, null and empty fee details remain distinct. Extremely
 large or malformed fee details are rejected rather than silently truncated.
-Nothing is prefilled or calculated: independently verify the field meanings,
-units and whether an amount was actually paid; a total due is not proof of
-payment. For each dairy trip, manually enter and confirm the vehicle, dairy,
-direction, date, time, location and verified kWh; leave optional odometer, trip
-distance, rate and actual payment blank if unknown. If kWh is unknown, do not
-save until verified.
+No amounts or trip details are prefilled or calculated: independently verify the
+field meanings, units and whether an amount was actually paid; a total due is not
+proof of payment. For each dairy trip, manually enter and confirm the vehicle,
+dairy, direction, date, time, location and verified kWh; leave optional odometer,
+trip distance, rate and actual payment blank if unknown. If kWh is unknown, do
+not save until verified.
 The confirmation checkbox also asks you to check the ledger for duplicates.
+
+Optionally enter the vehicle name and choose **Save / change vehicle
+association**, then confirm. This separately saves the association between the
+exact source vehicle identifier and that name; it does not save the charge.
+Later candidates with the same identifier suggest that name, labeled as coming
+from your saved association. Check and correct the vehicle for every charge;
+you must still confirm each charge separately; changing a field clears that
+confirmation. To update a mistaken association,
+enter the corrected name and use the same button. **Forget association** removes
+it without changing existing charges. These associations, including source
+vehicle identifiers and names, are stored unencrypted in the local ledger; keep
+that database and its backups private.
 
 On save, the source session identifier is stored unencrypted in the private
 ledger to block repeat imports of that identifier. Manual entries and records

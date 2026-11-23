@@ -45,11 +45,27 @@ def parse_date(value):
     return date.isoformat()
 
 
+def required_text(value, key):
+    if not isinstance(value, str):
+        raise ValueError(f"{LABELS[key]} is required and must be plain text (up to 200 characters).")
+    value = value.strip()
+    if (not value or len(value) > 200 or
+            any(ord(c) < 32 or ord(c) == 127 or 0xD800 <= ord(c) <= 0xDFFF for c in value)):
+        raise ValueError(f"{LABELS[key]} is required and must be plain text (up to 200 characters).")
+    return value
+
+
+def valid_source_identifier(value):
+    if (not isinstance(value, str) or not value.strip() or len(value) > 500 or
+            any(ord(c) < 32 or ord(c) == 127 or 0xD800 <= ord(c) <= 0xDFFF for c in value)):
+        raise ValueError("A valid source vehicle identifier is required for an association.")
+    return value
+
+
 def validate(raw):
     values = {key: raw.get(key, "").strip() for key in FIELDS}
     for key in ("vehicle", "dairy", "location"):
-        if not values[key] or len(values[key]) > 200 or any(ord(c) < 32 or ord(c) == 127 for c in values[key]):
-            raise ValueError(f"{LABELS[key]} is required and must be plain text (up to 200 characters).")
+        values[key] = required_text(values[key], key)
     if values["direction"] not in DIRECTIONS:
         raise ValueError("Choose a trip direction.")
     values["date"] = parse_date(values["date"])
@@ -152,6 +168,8 @@ def parse_candidates(data):
                                              or 0xD800 <= ord(char) <= 0xDFFF for char in value)):
                 raise ValueError("The selected response has invalid candidate details.")
             candidate[key] = value or "Not provided"
+        source_id = row.get("vin")
+        candidate["source_vehicle_identifier"] = source_id if source_id and source_id.strip() else None
         candidate["fee_details"] = fee_details(row)
         candidates.append(candidate)
     return candidates
@@ -198,6 +216,8 @@ class Ledger:
         self.db.execute("""CREATE TABLE IF NOT EXISTS reviewed_tesla_sessions (
             session_id INTEGER PRIMARY KEY, charge_id INTEGER NOT NULL UNIQUE,
             FOREIGN KEY (charge_id) REFERENCES charges(id))""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS tesla_vehicle_associations (
+            source_identifier TEXT PRIMARY KEY, vehicle TEXT NOT NULL)""")
         self.db.commit()
 
     def _insert(self, values):
@@ -220,6 +240,30 @@ class Ledger:
     def imported(self, session_id):
         return self.db.execute("SELECT 1 FROM reviewed_tesla_sessions WHERE session_id = ?",
                                (session_id,)).fetchone() is not None
+
+    def associated_vehicle(self, source_identifier):
+        if source_identifier is None:
+            return None
+        source_identifier = valid_source_identifier(source_identifier)
+        row = self.db.execute("SELECT vehicle FROM tesla_vehicle_associations WHERE source_identifier = ?",
+                              (source_identifier,)).fetchone()
+        return row["vehicle"] if row is not None else None
+
+    def associate_vehicle(self, source_identifier, vehicle):
+        source_identifier = valid_source_identifier(source_identifier)
+        vehicle = required_text(vehicle, "vehicle")
+        with self.db:
+            self.db.execute("""INSERT INTO tesla_vehicle_associations (source_identifier, vehicle)
+                            VALUES (?, ?) ON CONFLICT(source_identifier)
+                            DO UPDATE SET vehicle = excluded.vehicle""", (source_identifier, vehicle))
+
+    def forget_vehicle_association(self, source_identifier):
+        source_identifier = valid_source_identifier(source_identifier)
+        with self.db:
+            result = self.db.execute("DELETE FROM tesla_vehicle_associations WHERE source_identifier = ?",
+                                     (source_identifier,))
+            if result.rowcount != 1:
+                raise ValueError("The saved association no longer exists.")
 
     def save_reviewed(self, raw, session_id, confirmed):
         if confirmed is not True:
@@ -449,7 +493,10 @@ class ReviewWindow:
         self.window.grab_set()
         self.variables = {key: tk.StringVar(self.window) for key in FIELDS}
         self.confirmed = tk.BooleanVar(self.window, value=False)
+        for variable in self.variables.values():
+            variable.trace_add("write", self.clear_confirmation)
         self.detail = tk.StringVar(self.window)
+        self.association_status = tk.StringVar(self.window)
         frame = ttk.Frame(self.window, padding=12)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, wraplength=1060, text=(
@@ -481,6 +528,17 @@ class ReviewWindow:
                 widget = ttk.Entry(form, textvariable=self.variables[key])
             widget.grid(row=row, column=column + 1, sticky="ew", padx=(0, 8), pady=3)
             form.columnconfigure(column + 1, weight=1)
+        association = ttk.Frame(right)
+        association.pack(fill="x", pady=(6, 0))
+        ttk.Label(association, textvariable=self.association_status).pack(anchor="w")
+        controls = ttk.Frame(association)
+        controls.pack(anchor="w")
+        self.associate_button = ttk.Button(controls, text="Save / change vehicle association",
+                                           command=self.associate_vehicle)
+        self.associate_button.pack(side="left")
+        self.forget_button = ttk.Button(controls, text="Forget association",
+                                        command=self.forget_vehicle_association)
+        self.forget_button.pack(side="left", padx=8)
         ttk.Label(right, wraplength=790, text=(
             "Energy is required. Leave optional mileage, rate or payment blank if unknown. "
             "Previously manual entries cannot be automatically matched; check the ledger for duplicates."
@@ -494,6 +552,9 @@ class ReviewWindow:
         self.listbox.bind("<<ListboxSelect>>", self.select)
         self.listbox.selection_set(0)
         self.select()
+
+    def clear_confirmation(self, *_args):
+        self.confirmed.set(False)
 
     def select(self, _event=None):
         selection = self.listbox.curselection()
@@ -510,6 +571,69 @@ class ReviewWindow:
             f"Start: {candidate['chargeStartDateTime']}\n"
             f"End: {candidate['chargeStopDateTime']}"
         )
+        source_id = candidate["source_vehicle_identifier"]
+        self.associate_button.configure(state="normal" if source_id else "disabled")
+        self.forget_button.configure(state="disabled")
+        if source_id is None:
+            self.association_status.set("No source vehicle identifier; association unavailable.")
+            return
+        try:
+            vehicle = self.dashboard.ledger.associated_vehicle(source_id)
+        except (ValueError, sqlite3.Error):
+            self.associate_button.configure(state="disabled")
+            self.association_status.set("Vehicle association unavailable.")
+            messagebox.showerror("Could not read association", "The local vehicle association could not be read.",
+                                 parent=self.window)
+            return
+        if vehicle is None:
+            self.association_status.set("No saved vehicle association for this identifier.")
+        else:
+            self.variables["vehicle"].set(vehicle)
+            self.forget_button.configure(state="normal")
+            self.association_status.set("Vehicle suggested from your saved association; verify for this charge.")
+
+    def associate_vehicle(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        source_id = self.candidates[selection[0]]["source_vehicle_identifier"]
+        if not messagebox.askyesno(
+                "Save vehicle association",
+                "Save the entered vehicle name for this source identifier? This replaces any existing "
+                "association and is stored unencrypted in the local ledger. It does not save the charge.",
+                parent=self.window):
+            return
+        try:
+            self.dashboard.ledger.associate_vehicle(source_id, self.variables["vehicle"].get())
+        except (ValueError, sqlite3.Error) as error:
+            messagebox.showerror("Could not save association",
+                                 str(error) if isinstance(error, ValueError) else "The association could not be saved.",
+                                 parent=self.window)
+            return
+        self.confirmed.set(False)
+        self.forget_button.configure(state="normal")
+        self.association_status.set("Vehicle association saved; verify for this charge.")
+
+    def forget_vehicle_association(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        source_id = self.candidates[selection[0]]["source_vehicle_identifier"]
+        if not messagebox.askyesno(
+                "Forget vehicle association",
+                "Remove this source vehicle association from the local ledger? Existing charges will not change.",
+                parent=self.window):
+            return
+        try:
+            self.dashboard.ledger.forget_vehicle_association(source_id)
+        except (ValueError, sqlite3.Error) as error:
+            messagebox.showerror("Could not remove association",
+                                 str(error) if isinstance(error, ValueError) else "The association could not be removed.",
+                                 parent=self.window)
+            return
+        self.confirmed.set(False)
+        self.forget_button.configure(state="disabled")
+        self.association_status.set("Vehicle association removed; verify for this charge.")
 
     def show_fees(self):
         selection = self.listbox.curselection()

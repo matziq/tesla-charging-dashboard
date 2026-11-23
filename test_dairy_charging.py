@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import tempfile
+import tkinter as tk
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -121,12 +122,56 @@ class LedgerTests(unittest.TestCase):
     def test_existing_ledger_gains_import_table_without_changing_records(self):
         self.ledger.save(record())
         self.ledger.db.execute("DROP TABLE reviewed_tesla_sessions")
+        self.ledger.db.execute("DROP TABLE tesla_vehicle_associations")
         self.ledger.db.commit()
         self.ledger.close()
         self.ledger = Ledger(self.path)
         self.assertEqual(len(self.ledger.rows()), 1)
+        self.assertIsNone(self.ledger.associated_vehicle("SYNTHETIC-ID"))
         self.ledger.save_reviewed(record(vehicle="Another vehicle"), 202, True)
         self.assertEqual(len(self.ledger.rows()), 2)
+
+    def test_explicit_associations_persist_are_exact_and_can_be_corrected_or_forgotten(self):
+        self.ledger.save(record(vehicle="Existing charge"))
+        self.ledger.associate_vehicle("SYNTHETIC-ID-A", "Example car A")
+        self.ledger.associate_vehicle("synthetic-id-a", "Example car B")
+        self.ledger.close()
+        self.ledger = Ledger(self.path)
+        self.assertEqual(self.ledger.associated_vehicle("SYNTHETIC-ID-A"), "Example car A")
+        self.assertEqual(self.ledger.associated_vehicle("synthetic-id-a"), "Example car B")
+        self.ledger.associate_vehicle("SYNTHETIC-ID-A", "Corrected car")
+        self.assertEqual(self.ledger.associated_vehicle("SYNTHETIC-ID-A"), "Corrected car")
+        self.ledger.forget_vehicle_association("SYNTHETIC-ID-A")
+        self.assertIsNone(self.ledger.associated_vehicle("SYNTHETIC-ID-A"))
+        self.assertEqual(self.ledger.associated_vehicle("synthetic-id-a"), "Example car B")
+        self.assertEqual(self.ledger.rows()[0]["vehicle"], "Existing charge")
+        with self.assertRaisesRegex(ValueError, "no longer exists"):
+            self.ledger.forget_vehicle_association("SYNTHETIC-ID-A")
+
+    def test_association_failures_roll_back_without_changing_records(self):
+        self.ledger.associate_vehicle("SYNTHETIC-ID", "Original")
+        self.ledger.save_reviewed(record(), 101, True)
+        self.ledger.db.execute("""CREATE TRIGGER reject_association
+                               BEFORE UPDATE ON tesla_vehicle_associations
+                               BEGIN SELECT RAISE(FAIL, 'synthetic detail'); END""")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.ledger.associate_vehicle("SYNTHETIC-ID", "Replacement")
+        self.assertEqual(self.ledger.associated_vehicle("SYNTHETIC-ID"), "Original")
+        self.assertEqual(len(self.ledger.rows()), 1)
+        with self.assertRaisesRegex(ValueError, "already imported"):
+            self.ledger.save_reviewed(record(), 101, True)
+        self.assertEqual(self.ledger.associated_vehicle("SYNTHETIC-ID"), "Original")
+
+    def test_invalid_associations_are_rejected_without_disclosing_identifiers(self):
+        for source in (None, "", " ", "SYNTHETIC\nSECRET", "x" * 501, "\ud800"):
+            with self.subTest(case=type(source)), self.assertRaises(ValueError) as failure:
+                self.ledger.associate_vehicle(source, "Example")
+            self.assertNotIn("SYNTHETIC", str(failure.exception))
+        for name in ("", "bad\nname", "\ud800"):
+            with self.assertRaises(ValueError):
+                self.ledger.associate_vehicle("SYNTHETIC-ID", name)
+        self.assertIsNone(self.ledger.associated_vehicle(None))
+        self.assertIsNone(self.ledger.associated_vehicle("SYNTHETIC-ID"))
 
 
 class CandidateTests(unittest.TestCase):
@@ -147,10 +192,20 @@ class CandidateTests(unittest.TestCase):
         rows = read_candidates(self.path)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["siteLocationName"], "Sample site")
+        self.assertEqual(rows[0]["source_vehicle_identifier"], "SYNTHETIC")
         self.assertNotIn("fees", rows[0])
         self.assertNotIn("energy", rows[0])
         self.assertIn('"totalDue": 42', rows[0]["fee_details"])
         self.assertIn('"uom": "unknown"', rows[0]["fee_details"])
+
+    def test_missing_vehicle_identifier_cannot_create_a_false_association(self):
+        for value in (None, "", " "):
+            self.path.write_text(json.dumps({"data": [{"sessionId": 1, "vin": value}],
+                                             "totalResults": 1}))
+            self.assertIsNone(read_candidates(self.path)[0]["source_vehicle_identifier"])
+        self.path.write_text(json.dumps({"data": [{"sessionId": 1, "vin": "Not provided"}],
+                                         "totalResults": 1}))
+        self.assertEqual(read_candidates(self.path)[0]["source_vehicle_identifier"], "Not provided")
 
     def test_preserves_each_fee_and_tier_with_exact_decimal_precision(self):
         body = ('{"data":[{"sessionId":1,"fees":['
@@ -265,6 +320,78 @@ class CandidateTests(unittest.TestCase):
             dialog.return_value.protocol.call_args.args[1]()
         review.window.grab_set.assert_called_once()
         review.variables.__getitem__.assert_not_called()
+
+    def test_select_suggests_only_saved_vehicle_and_resets_review(self):
+        review = mock.Mock()
+        review.listbox.curselection.return_value = (0,)
+        review.candidates = [{"vin": "SYNTHETIC-ID", "source_vehicle_identifier": "SYNTHETIC-ID",
+                              "siteLocationName": "Example", "chargeStartDateTime": "Example start",
+                              "chargeStopDateTime": "Example stop"}]
+        review.variables = {key: mock.Mock() for key in
+                            ("vehicle", "dairy", "direction", "date", "time", "location",
+                             "odometer", "trip_miles", "energy", "rate", "paid")}
+        review.dashboard.ledger.associated_vehicle.return_value = "Example car"
+        ReviewWindow.select(review)
+        review.variables["vehicle"].set.assert_has_calls([mock.call(""), mock.call("Example car")])
+        for key in review.variables:
+            if key != "vehicle":
+                review.variables[key].set.assert_called_once_with("")
+        review.confirmed.set.assert_called_once_with(False)
+        self.assertIn("saved association", review.association_status.set.call_args.args[0])
+
+    def test_association_change_requires_separate_confirmation_and_does_not_save_charge(self):
+        review = mock.Mock()
+        review.listbox.curselection.return_value = (0,)
+        review.candidates = [{"source_vehicle_identifier": "SYNTHETIC-ID"}]
+        review.variables = {"vehicle": mock.Mock()}
+        review.variables["vehicle"].get.return_value = "Example car"
+        with mock.patch("dairy_charging.messagebox.askyesno", return_value=False):
+            ReviewWindow.associate_vehicle(review)
+        review.dashboard.ledger.associate_vehicle.assert_not_called()
+        with mock.patch("dairy_charging.messagebox.askyesno", return_value=True):
+            ReviewWindow.associate_vehicle(review)
+        review.dashboard.ledger.associate_vehicle.assert_called_once_with("SYNTHETIC-ID", "Example car")
+        review.dashboard.ledger.save_reviewed.assert_not_called()
+        review.confirmed.set.assert_called_once_with(False)
+        with mock.patch("dairy_charging.messagebox.askyesno", return_value=True):
+            ReviewWindow.forget_vehicle_association(review)
+        review.dashboard.ledger.forget_vehicle_association.assert_called_once_with("SYNTHETIC-ID")
+        review.dashboard.ledger.save_reviewed.assert_not_called()
+
+    def test_association_lookup_failure_is_visible_and_redacted(self):
+        review = mock.Mock()
+        review.listbox.curselection.return_value = (0,)
+        review.candidates = [{"vin": "SYNTHETIC-ID", "source_vehicle_identifier": "SYNTHETIC-ID",
+                              "siteLocationName": "Example", "chargeStartDateTime": "Example",
+                              "chargeStopDateTime": "Example"}]
+        review.variables = {"vehicle": mock.Mock()}
+        review.dashboard.ledger.associated_vehicle.side_effect = sqlite3.Error("SYNTHETIC-SECRET")
+        with mock.patch("dairy_charging.messagebox.showerror") as error:
+            ReviewWindow.select(review)
+        error.assert_called_once()
+        self.assertNotIn("SYNTHETIC", str(error.call_args))
+        review.associate_button.configure.assert_called_with(state="disabled")
+
+    def test_editing_a_reviewed_value_clears_its_confirmation(self):
+        try:
+            root = tk.Tk()
+        except tk.TclError:
+            self.skipTest("Tk display unavailable")
+        self.addCleanup(root.destroy)
+        root.withdraw()
+        ledger = Ledger(Path(self.temp.name) / "synthetic-ledger.sqlite3")
+        self.addCleanup(ledger.close)
+        self.path.write_text(json.dumps({"data": [{"sessionId": 1, "vin": "SYNTHETIC-ID"}],
+                                         "totalResults": 1}))
+        review = ReviewWindow(Dashboard(root, ledger), read_candidates(self.path))
+        review.window.withdraw()
+        review.confirmed.set(True)
+        review.variables["vehicle"].set("Example car")
+        self.assertFalse(review.confirmed.get())
+        review.confirmed.set(True)
+        review.variables["energy"].set("10")
+        self.assertFalse(review.confirmed.get())
+        self.assertEqual(ledger.rows(), [])
 
 
 if __name__ == "__main__":
