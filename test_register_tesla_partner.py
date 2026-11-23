@@ -104,15 +104,18 @@ class PartnerTests(unittest.TestCase):
                     self.assertNotIn(secret, str(failure.exception))
 
     def test_unrecognized_malformed_and_oversized_token_errors_are_sanitized(self):
-        bodies = (
-            b'{"error":"unknown-secret","error_description":"description-secret"}',
-            b'{"error":["invalid_client"],"access_token":"token-secret"}',
-            b'{"error":"invalid_client","error_description":"secret"',
-            b'\xffsecret',
-            b'[' * 2000 + b'0' + b']' * 2000,
-            b'{"error":"invalid_client","padding":"' + b"x" * partner.MAX_OAUTH_ERROR + b'"}',
+        cases = (
+            (b'', "empty"),
+            (b'{"error":"unknown-secret","error_description":"description-secret"}', "JSON error category unrecognized"),
+            (b'{"error":["invalid_client"],"access_token":"token-secret"}', "JSON error field is not a string"),
+            (b'{"access_token":"token-secret"}', "JSON object has no error field"),
+            (b'["client-secret"]', "JSON value is not an object"),
+            (b'{"error":"invalid_client","error_description":"secret"', "not parseable JSON"),
+            (b'\xffsecret', "not parseable JSON"),
+            (b'[' * 2000 + b'0' + b']' * 2000, ("not parseable JSON", "JSON value is not an object")),
+            (b'{"error":"invalid_client","padding":"' + b"x" * partner.MAX_OAUTH_ERROR + b'"}', "exceeds diagnostic limit"),
         )
-        for body in bodies:
+        for body, label in cases:
             with self.subTest(body=body[:40]):
                 opener = Mock()
                 opener.open.side_effect = urllib.error.HTTPError(
@@ -121,7 +124,11 @@ class PartnerTests(unittest.TestCase):
                 with patch.object(partner.urllib.request, "build_opener", return_value=opener):
                     with self.assertRaises(ValueError) as failure:
                         partner.partner_token("id-secret", "client-secret")
-                self.assertEqual(str(failure.exception), "Partner token returned HTTP 400")
+                labels = label if isinstance(label, tuple) else (label,)
+                self.assertIn(str(failure.exception), [
+                    f"Partner token returned HTTP 400 (OAuth error response: {value})"
+                    for value in labels
+                ])
 
     def test_non_token_http_errors_do_not_read_or_classify_response_body(self):
         stream = Mock(wraps=io.BytesIO(b'{"error":"invalid_client","error_description":"secret"}'))
@@ -167,6 +174,24 @@ class PartnerTests(unittest.TestCase):
             with self.assertRaises(ValueError) as failure:
                 partner.partner_token("id", "secret")
         self.assertEqual(str(failure.exception), "Partner token error response could not be closed")
+
+    def test_unreadable_error_body_uses_fixed_label(self):
+        stream = Mock()
+        stream.read.side_effect = OSError("read-secret")
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(partner.TOKEN_URL, 400, "", {}, stream)
+        with patch.object(partner.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaises(ValueError) as failure:
+                partner.partner_token("id", "secret")
+        self.assertEqual(str(failure.exception), "Partner token returned HTTP 400 (OAuth error response: unreadable)")
+
+    def test_launch_displays_diagnostic_version(self):
+        output = io.StringIO()
+        with patch.object(partner, "verify_hosted_key", side_effect=ValueError("test")), \
+             contextlib.redirect_stdout(output):
+            with self.assertRaises(SystemExit):
+                partner.main()
+        self.assertIn("Tesla partner helper: diagnostic format v2", output.getvalue())
 
     def test_existing_different_key_never_registers(self):
         with patch.object(partner, "verify_hosted_key"), \
@@ -221,7 +246,8 @@ class PartnerTests(unittest.TestCase):
 
     def test_unverified_hosted_key_stops_before_credentials(self):
         with patch.object(partner, "verify_hosted_key", side_effect=ValueError("key mismatch")), \
-             patch.object(partner.getpass, "getpass") as prompt:
+             patch.object(partner.getpass, "getpass") as prompt, \
+             contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(SystemExit, "key mismatch"):
                 partner.main()
             prompt.assert_not_called()

@@ -24,22 +24,33 @@ REGISTER_URL = AUDIENCE + "/api/1/partner_accounts"
 LOOKUP_URL = REGISTER_URL + "/public_key?" + urllib.parse.urlencode({"domain": DOMAIN})
 MAX_RESPONSE = 1024 * 1024
 MAX_OAUTH_ERROR = 16 * 1024
-OAUTH_ERROR_CATEGORIES = frozenset({
+OAUTH_ERROR_CATEGORIES = {category: f"OAuth error: {category}" for category in (
     "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client",
-    "unsupported_grant_type", "invalid_scope",
-})
+    "unsupported_grant_type", "invalid_scope", "invalid_client_id", "server_error",
+)}
 
 
-def oauth_error_category(error):
+def oauth_error_summary(error):
     try:
         body = error.read(MAX_OAUTH_ERROR + 1)
-        if len(body) > MAX_OAUTH_ERROR:
-            return None
+    except (OSError, ValueError, http.client.HTTPException):
+        return "OAuth error response: unreadable"
+    if len(body) > MAX_OAUTH_ERROR:
+        return "OAuth error response: exceeds diagnostic limit"
+    if not body:
+        return "OAuth error response: empty"
+    try:
         payload = json.loads(body)
-    except (OSError, ValueError, UnicodeError, RecursionError, http.client.HTTPException):
-        return None
-    category = payload.get("error") if isinstance(payload, dict) else None
-    return category if isinstance(category, str) and category in OAUTH_ERROR_CATEGORIES else None
+    except (ValueError, UnicodeError, RecursionError):
+        return "OAuth error response: not parseable JSON"
+    if not isinstance(payload, dict):
+        return "OAuth error response: JSON value is not an object"
+    if "error" not in payload:
+        return "OAuth error response: JSON object has no error field"
+    category = payload["error"]
+    if not isinstance(category, str):
+        return "OAuth error response: JSON error field is not a string"
+    return OAUTH_ERROR_CATEGORIES.get(category, "OAuth error response: JSON error category unrecognized")
 
 
 def request_bytes(request, label, allow_not_found=False, oauth_error=False):
@@ -52,8 +63,8 @@ def request_bytes(request, label, allow_not_found=False, oauth_error=False):
         try:
             if allow_not_found and error.code == 404:
                 return None
-            category = oauth_error_category(error) if oauth_error else None
-            suffix = f" (OAuth error: {category})" if category else ""
+            summary = oauth_error_summary(error) if oauth_error else None
+            suffix = f" ({summary})" if summary else ""
             raise ValueError(f"{label} returned HTTP {error.code}{suffix}") from None
         finally:
             try:
@@ -152,6 +163,7 @@ def register(token):
 
 def main():
     try:
+        print("Tesla partner helper: diagnostic format v2")
         verify_hosted_key()
         print("Hosted key verified. Confirm the Tesla application allows https://memconfigmgr.org.")
         if input("Type CONTINUE to enter credentials, or press Enter to cancel: ").strip() != "CONTINUE":
