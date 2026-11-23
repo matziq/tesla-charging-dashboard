@@ -66,10 +66,11 @@ possible. Unexpected responses or failures stop the
 process without printing credentials, tokens, or response bodies. For a token HTTP
 error, the helper displays a recognized OAuth error category or a fixed response
 shape label; unknown error text and descriptions remain private. The launch
-message identifies diagnostic format v2, so an older copy is easy to recognize.
+message identifies diagnostic format v3, so an older copy is easy to recognize.
 The allowlist includes Tesla-specific categories shown in
 [Tesla's vehicle-command issue tracker](https://github.com/teslamotors/vehicle-command/issues/267);
-the format of any particular live response is not known in advance.
+`client_not_found` was also observed with synthetic credentials. The format of
+any particular live response is not known in advance.
 If verification fails or a POST fails, check Tesla before retrying because the
 outcome may be unknown.
 

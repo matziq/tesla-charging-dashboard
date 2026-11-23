@@ -103,10 +103,22 @@ class PartnerTests(unittest.TestCase):
                 for secret in ("description-secret", "token-secret", "client-secret", "reason-secret"):
                     self.assertNotIn(secret, str(failure.exception))
 
+    def test_client_not_found_category_does_not_expose_other_response_fields(self):
+        body = b'{"error":"client_not_found","error_description":"secret-detail","client_secret":"secret-value"}'
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(
+            partner.TOKEN_URL, 400, "reason-secret", {}, io.BytesIO(body)
+        )
+        with patch.object(partner.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaises(ValueError) as failure:
+                partner.partner_token("id-secret", "secret-value")
+        self.assertEqual(str(failure.exception), "Partner token returned HTTP 400 (OAuth error: client_not_found)")
+
     def test_unrecognized_malformed_and_oversized_token_errors_are_sanitized(self):
         cases = (
             (b'', "empty"),
             (b'{"error":"unknown-secret","error_description":"description-secret"}', "JSON error category unrecognized"),
+            (b'{"error":"client_not_found secret-value"}', "JSON error category unrecognized"),
             (b'{"error":["invalid_client"],"access_token":"token-secret"}', "JSON error field is not a string"),
             (b'{"access_token":"token-secret"}', "JSON object has no error field"),
             (b'["client-secret"]', "JSON value is not an object"),
@@ -191,7 +203,7 @@ class PartnerTests(unittest.TestCase):
              contextlib.redirect_stdout(output):
             with self.assertRaises(SystemExit):
                 partner.main()
-        self.assertIn("Tesla partner helper: diagnostic format v2", output.getvalue())
+        self.assertIn("Tesla partner helper: diagnostic format v3", output.getvalue())
 
     def test_existing_different_key_never_registers(self):
         with patch.object(partner, "verify_hosted_key"), \

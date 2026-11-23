@@ -27,6 +27,7 @@ MAX_OAUTH_ERROR = 16 * 1024
 OAUTH_ERROR_CATEGORIES = {category: f"OAuth error: {category}" for category in (
     "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client",
     "unsupported_grant_type", "invalid_scope", "invalid_client_id", "server_error",
+    "client_not_found",
 )}
 
 
@@ -163,7 +164,7 @@ def register(token):
 
 def main():
     try:
-        print("Tesla partner helper: diagnostic format v2")
+        print("Tesla partner helper: diagnostic format v3")
         verify_hosted_key()
         print("Hosted key verified. Confirm the Tesla application allows https://memconfigmgr.org.")
         if input("Type CONTINUE to enter credentials, or press Enter to cancel: ").strip() != "CONTINUE":
