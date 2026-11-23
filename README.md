@@ -25,6 +25,25 @@ Both former public dashboard URLs now serve retirement notices. The old CSV
 preview command is retired; Tesla discovery tools below remain available. No
 existing records were migrated. Historical Git content may still be public.
 
+### Review a saved Tesla response
+
+The local dashboard's **Review a saved Tesla response** button opens a file the
+user explicitly selects; it makes no Tesla request. A response is only a
+potentially incomplete page, not a complete history. The review window shows
+the reported vehicle identifier, location and timestamps locally as unverified
+clues. It does not interpret fee data or prefill the ledger. For each dairy
+trip, manually enter and confirm the vehicle, dairy, direction, date, time,
+location and verified kWh; leave optional odometer, trip distance, rate and
+actual payment blank if unknown. If kWh is unknown, do not save until verified.
+The confirmation checkbox also asks you to check the ledger for duplicates.
+
+On save, the source session identifier is stored unencrypted in the private
+ledger to block repeat imports of that identifier. Manual entries and records
+imported through other means have no such link and cannot be automatically
+deduplicated; review them yourself. Existing records are not overwritten.
+Saving a candidate does not establish that the page or history is complete.
+No automatic synchronization or pagination is implemented.
+
 ## Private refresh prototype
 
 The indexed excerpt of Tesla's [charging endpoint documentation](https://developer.tesla.com/docs/fleet-api/endpoints/charging-endpoints)

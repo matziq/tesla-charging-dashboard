@@ -2,19 +2,21 @@
 """Local-only dairy-trip charging ledger."""
 
 import datetime as dt
+import json
 import os
 import sqlite3
 import sys
 import tkinter as tk
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 
 FIELDS = ("vehicle", "dairy", "direction", "date", "time", "location",
           "odometer", "trip_miles", "energy", "rate", "paid")
 DIRECTIONS = ("To dairy", "From dairy")
 NUMBER_FIELDS = ("odometer", "trip_miles", "energy", "rate", "paid")
+MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 LABELS = {
     "vehicle": "Vehicle", "dairy": "Dairy", "direction": "Direction",
     "date": "Date (MM/DD/YYYY)", "time": "Time (HH:MM, 24-hour)",
@@ -71,6 +73,54 @@ def validate(raw):
     return values
 
 
+def read_candidates(path):
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate JSON keys")
+            result[key] = value
+        return result
+
+    try:
+        with Path(path).open("rb") as source:
+            data = source.read(MAX_RESPONSE_BYTES + 1)
+    except OSError:
+        raise ValueError("The selected response could not be opened.") from None
+    if len(data) > MAX_RESPONSE_BYTES:
+        raise ValueError("The selected response exceeds 10 MiB.")
+    try:
+        payload = json.loads(data, object_pairs_hook=unique_keys)
+    except (ValueError, UnicodeError, RecursionError):
+        raise ValueError("The selected response is not valid unambiguous JSON.") from None
+    if not isinstance(payload, dict):
+        raise ValueError("The selected response has an unsupported structure.")
+    rows, total = payload.get("data"), payload.get("totalResults")
+    if (not isinstance(rows, list) or type(total) is not int or total < len(rows)
+            or len(rows) > 5000):
+        raise ValueError("The selected response has invalid page metadata.")
+    candidates, identifiers = [], set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("The selected response has an invalid candidate.")
+        identifier = row.get("sessionId")
+        if type(identifier) is not int or not 0 <= identifier <= 9223372036854775807:
+            raise ValueError("The selected response has an invalid session identifier.")
+        if identifier in identifiers:
+            raise ValueError("The selected response has duplicate session identifiers.")
+        identifiers.add(identifier)
+        candidate = {"sessionId": identifier}
+        for key in ("vin", "siteLocationName", "chargeStartDateTime", "chargeStopDateTime"):
+            value = row.get(key)
+            if value is not None and (not isinstance(value, str) or len(value) > 500
+                                      or any(ord(char) < 32 or 127 == ord(char)
+                                             or 0xD800 <= ord(char) <= 0xDFFF for char in value)):
+                raise ValueError("The selected response has invalid candidate details.")
+            candidate[key] = value or "Not provided"
+        candidates.append(candidate)
+    return candidates
+
+
 class Ledger:
     def __init__(self, path):
         path = Path(path)
@@ -82,21 +132,47 @@ class Ledger:
             direction TEXT NOT NULL, date TEXT NOT NULL, time TEXT NOT NULL,
             location TEXT NOT NULL, odometer TEXT, trip_miles TEXT,
             energy TEXT NOT NULL, rate TEXT, paid TEXT)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS reviewed_tesla_sessions (
+            session_id INTEGER PRIMARY KEY, charge_id INTEGER NOT NULL UNIQUE,
+            FOREIGN KEY (charge_id) REFERENCES charges(id))""")
         self.db.commit()
+
+    def _insert(self, values):
+        placeholders = ", ".join("?" for _ in FIELDS)
+        return self.db.execute(f"INSERT INTO charges ({', '.join(FIELDS)}) VALUES ({placeholders})",
+                               tuple(values[key] for key in FIELDS))
 
     def save(self, raw, record_id=None):
         values = validate(raw)
         with self.db:
             if record_id is None:
-                placeholders = ", ".join("?" for _ in FIELDS)
-                self.db.execute(f"INSERT INTO charges ({', '.join(FIELDS)}) VALUES ({placeholders})",
-                                tuple(values[key] for key in FIELDS))
+                self._insert(values)
             else:
                 assignments = ", ".join(f"{key} = ?" for key in FIELDS)
                 result = self.db.execute(f"UPDATE charges SET {assignments} WHERE id = ?",
                                          (*[values[key] for key in FIELDS], record_id))
                 if result.rowcount != 1:
                     raise ValueError("The selected record no longer exists.")
+
+    def imported(self, session_id):
+        return self.db.execute("SELECT 1 FROM reviewed_tesla_sessions WHERE session_id = ?",
+                               (session_id,)).fetchone() is not None
+
+    def save_reviewed(self, raw, session_id, confirmed):
+        if confirmed is not True:
+            raise ValueError("Confirm the review before saving.")
+        if type(session_id) is not int or not 0 <= session_id <= 9223372036854775807:
+            raise ValueError("The candidate session identifier is invalid.")
+        values = validate(raw)
+        try:
+            with self.db:
+                if self.imported(session_id):
+                    raise ValueError("This Tesla candidate was already imported.")
+                charge_id = self._insert(values).lastrowid
+                self.db.execute("INSERT INTO reviewed_tesla_sessions (session_id, charge_id) VALUES (?, ?)",
+                                (session_id, charge_id))
+        except sqlite3.IntegrityError:
+            raise ValueError("The candidate could not be saved; it may already be imported.") from None
 
     def rows(self, vehicle="", dairy="", direction="", start="", end=""):
         conditions, parameters = [], []
@@ -148,6 +224,7 @@ class Dashboard:
         shell.pack(fill="both", expand=True)
         ttk.Label(shell, text="Dairy-trip charging", font=("Segoe UI", 18, "bold")).pack(anchor="w")
         ttk.Label(shell, text="Local ledger · Unknown amounts stay blank · No Tesla connection").pack(anchor="w", pady=(0, 8))
+        ttk.Button(shell, text="Review a saved Tesla response", command=self.open_review).pack(anchor="w", pady=(0, 8))
         form = ttk.LabelFrame(shell, text="Record or correct a charge", padding=8)
         form.pack(fill="x")
         self.vehicle_box = self.dairy_box = None
@@ -214,6 +291,27 @@ class Dashboard:
         self.clear()
         self.refresh()
 
+    def open_review(self):
+        if self.selected is not None:
+            messagebox.showinfo("Finish editing first",
+                                "Save or clear the selected record before opening the review.",
+                                parent=self.root)
+            return
+        path = filedialog.askopenfilename(
+            parent=self.root, title="Select a privately saved Tesla response",
+            filetypes=(("Response files", "*.bin *.json"), ("All files", "*.*")))
+        if not path:
+            return
+        try:
+            candidates = read_candidates(path)
+        except ValueError as error:
+            messagebox.showerror("Could not open response", str(error), parent=self.root)
+            return
+        if not candidates:
+            messagebox.showinfo("No candidates", "This response contains no candidates.", parent=self.root)
+            return
+        ReviewWindow(self, candidates)
+
     def clear(self):
         self.selected = None
         for value in self.variables.values():
@@ -276,6 +374,96 @@ class Dashboard:
     def close(self):
         self.ledger.close()
         self.root.destroy()
+
+
+class ReviewWindow:
+    def __init__(self, dashboard, candidates):
+        self.dashboard, self.candidates = dashboard, candidates
+        self.window = tk.Toplevel(dashboard.root)
+        self.window.title("Review saved Tesla response")
+        self.window.geometry("1120x700")
+        self.window.transient(dashboard.root)
+        self.window.grab_set()
+        self.variables = {key: tk.StringVar(self.window) for key in FIELDS}
+        self.confirmed = tk.BooleanVar(self.window, value=False)
+        self.detail = tk.StringVar(self.window)
+        frame = ttk.Frame(self.window, padding=12)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, wraplength=1060, text=(
+            "This is one potentially incomplete page, not a complete history. "
+            "Select a candidate and independently enter every required value. "
+            "Tesla details below are unverified; no amount, mileage, units or date is inferred."
+        )).pack(anchor="w")
+        body = ttk.Frame(frame)
+        body.pack(fill="both", expand=True, pady=8)
+        self.listbox = tk.Listbox(body, exportselection=False, width=24)
+        self.listbox.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 10))
+        scrollbar = ttk.Scrollbar(body, orient="vertical", command=self.listbox.yview)
+        scrollbar.grid(row=0, column=1, rowspan=2, sticky="ns")
+        self.listbox.configure(yscrollcommand=scrollbar.set)
+        right = ttk.Frame(body)
+        right.grid(row=0, column=2, sticky="nsew")
+        body.columnconfigure(2, weight=1)
+        body.rowconfigure(0, weight=1)
+        ttk.Label(right, textvariable=self.detail, justify="left", wraplength=790).pack(anchor="w", pady=(0, 8))
+        form = ttk.LabelFrame(right, text="Manually verified dairy-trip details", padding=8)
+        form.pack(fill="x")
+        for index, key in enumerate(FIELDS):
+            column, row = (index % 2) * 2, index // 2
+            ttk.Label(form, text=LABELS[key]).grid(row=row, column=column, sticky="w", padx=(0, 5), pady=3)
+            if key == "direction":
+                widget = ttk.Combobox(form, textvariable=self.variables[key], values=DIRECTIONS, state="readonly")
+            else:
+                widget = ttk.Entry(form, textvariable=self.variables[key])
+            widget.grid(row=row, column=column + 1, sticky="ew", padx=(0, 8), pady=3)
+            form.columnconfigure(column + 1, weight=1)
+        ttk.Label(right, wraplength=790, text=(
+            "Energy is required. Leave optional mileage, rate or payment blank if unknown. "
+            "Previously manual entries cannot be automatically matched; check the ledger for duplicates."
+        )).pack(anchor="w", pady=8)
+        ttk.Checkbutton(right, variable=self.confirmed, text=(
+            "I verified the vehicle, dairy trip, entered values and any blanks, and checked for duplicates."
+        )).pack(anchor="w")
+        ttk.Button(right, text="Save reviewed charge", command=self.save).pack(anchor="w", pady=8)
+        for index in range(len(candidates)):
+            self.listbox.insert("end", f"Candidate {index + 1}")
+        self.listbox.bind("<<ListboxSelect>>", self.select)
+        self.listbox.selection_set(0)
+        self.select()
+
+    def select(self, _event=None):
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        candidate = self.candidates[selection[0]]
+        for value in self.variables.values():
+            value.set("")
+        self.confirmed.set(False)
+        self.detail.set(
+            "Tesla-reported candidate details (verify independently):\n"
+            f"Vehicle identifier: {candidate['vin']}\n"
+            f"Location: {candidate['siteLocationName']}\n"
+            f"Start: {candidate['chargeStartDateTime']}\n"
+            f"End: {candidate['chargeStopDateTime']}"
+        )
+
+    def save(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        try:
+            self.dashboard.ledger.save_reviewed(
+                {key: value.get() for key, value in self.variables.items()},
+                self.candidates[selection[0]]["sessionId"], self.confirmed.get())
+        except (ValueError, sqlite3.Error) as error:
+            messagebox.showerror("Could not save candidate",
+                                 str(error) if isinstance(error, ValueError) else "Local ledger could not be saved.",
+                                 parent=self.window)
+            return
+        self.dashboard.refresh()
+        messagebox.showinfo("Candidate saved", "The reviewed charge was saved to the local ledger.",
+                            parent=self.window)
+        self.confirmed.set(False)
 
 
 def main():
