@@ -74,6 +74,15 @@ any particular live response is not known in advance.
 If verification fails or a POST fails, check Tesla before retrying because the
 outcome may be unknown.
 
+For an offline input check, run `python .\check_tesla_client_id.py` in your own
+private terminal. Paste the application client ID at the first hidden prompt
+and type it manually at the second; do not enter the client secret. The script
+compares the entries, checks for invisible characters and UUID-shaped format,
+and shows whether the registration helper's whitespace trimming would change
+the first entry. It does not print or save the ID or make network requests.
+Matching entries do not establish that Tesla recognizes the ID; UUID shape is
+only a diagnostic, not a documented requirement.
+
 The helper pins the prepared public key's SHA-256 fingerprint. A key rotation
 requires reviewing and updating that fingerprint before using the helper. Tesla's
 [partner endpoint reference](https://developer.tesla.com/docs/fleet-api/endpoints/partner-endpoints)
@@ -166,7 +175,7 @@ Verify the actual personal-history response and pagination privately before
 mapping fields or implementing further automation. Never put tokens in the
 repository or publish raw responses.
 
-Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history test_authorize_tesla test_register_tesla_partner`.
+Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history test_authorize_tesla test_register_tesla_partner test_check_tesla_client_id`.
 
 ## Local preview
 

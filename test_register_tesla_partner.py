@@ -33,6 +33,7 @@ class PartnerTests(unittest.TestCase):
         self.assertEqual(request.full_url, partner.TOKEN_URL)
         self.assertEqual(fields["grant_type"], ["client_credentials"])
         self.assertEqual(fields["audience"], [partner.AUDIENCE])
+        self.assertEqual(fields["client_id"], ["id-secret"])
         self.assertEqual(fields["client_secret"], ["client-secret"])
         self.assertEqual(token, "token-secret")
 
