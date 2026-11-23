@@ -9,7 +9,7 @@ import sys
 import tkinter as tk
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 
 FIELDS = ("vehicle", "dairy", "direction", "date", "time", "location",
@@ -19,6 +19,7 @@ NUMBER_FIELDS = ("odometer", "trip_miles", "energy", "rate", "paid")
 MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 MAX_REVIEW_PAGES = 20
 MAX_REVIEW_CANDIDATES = 5000
+MAX_FEE_DETAILS_BYTES = 128 * 1024
 LABELS = {
     "vehicle": "Vehicle", "dairy": "Dairy", "direction": "Direction",
     "date": "Date (MM/DD/YYYY)", "time": "Time (HH:MM, 24-hour)",
@@ -75,6 +76,39 @@ def validate(raw):
     return values
 
 
+def format_json(value, level=0):
+    indent = "  " * level
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        parts = [f'{indent}  {json.dumps(key, ensure_ascii=True)}: {format_json(item, level + 1)}'
+                 for key, item in value.items()]
+        return "{\n" + ",\n".join(parts) + f"\n{indent}" + "}"
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        parts = [f"{indent}  {format_json(item, level + 1)}" for item in value]
+        return "[\n" + ",\n".join(parts) + f"\n{indent}" + "]"
+    if isinstance(value, Decimal):
+        return str(value)
+    return json.dumps(value, ensure_ascii=True, allow_nan=False)
+
+
+def fee_details(row):
+    if "fees" not in row:
+        return "Fee details not provided."
+    fees = row["fees"]
+    if fees is not None and (not isinstance(fees, list) or any(not isinstance(fee, dict) for fee in fees)):
+        raise ValueError("The selected response has invalid fee details.")
+    try:
+        details = format_json(fees)
+    except (ValueError, RecursionError):
+        raise ValueError("The selected response has invalid fee details.") from None
+    if len(details.encode("ascii")) > MAX_FEE_DETAILS_BYTES:
+        raise ValueError("The selected response has fee details too large to review safely.")
+    return details
+
+
 def read_candidates(path):
     def unique_keys(pairs):
         result = {}
@@ -84,6 +118,9 @@ def read_candidates(path):
             result[key] = value
         return result
 
+    def reject_constant(_value):
+        raise ValueError("Invalid JSON constant")
+
     try:
         with Path(path).open("rb") as source:
             data = source.read(MAX_RESPONSE_BYTES + 1)
@@ -92,7 +129,8 @@ def read_candidates(path):
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("The selected response exceeds 10 MiB.")
     try:
-        payload = json.loads(data, object_pairs_hook=unique_keys)
+        payload = json.loads(data, object_pairs_hook=unique_keys,
+                             parse_float=Decimal, parse_constant=reject_constant)
     except (ValueError, UnicodeError, RecursionError):
         raise ValueError("The selected response is not valid unambiguous JSON.") from None
     if not isinstance(payload, dict):
@@ -119,6 +157,7 @@ def read_candidates(path):
                                              or 0xD800 <= ord(char) <= 0xDFFF for char in value)):
                 raise ValueError("The selected response has invalid candidate details.")
             candidate[key] = value or "Not provided"
+        candidate["fee_details"] = fee_details(row)
         candidates.append(candidate)
     return candidates
 
@@ -426,6 +465,7 @@ class ReviewWindow:
         body.columnconfigure(2, weight=1)
         body.rowconfigure(0, weight=1)
         ttk.Label(right, textvariable=self.detail, justify="left", wraplength=790).pack(anchor="w", pady=(0, 8))
+        ttk.Button(right, text="View unverified fee details", command=self.show_fees).pack(anchor="w", pady=(0, 8))
         form = ttk.LabelFrame(right, text="Manually verified dairy-trip details", padding=8)
         form.pack(fill="x")
         for index, key in enumerate(FIELDS):
@@ -466,6 +506,33 @@ class ReviewWindow:
             f"Start: {candidate['chargeStartDateTime']}\n"
             f"End: {candidate['chargeStopDateTime']}"
         )
+
+    def show_fees(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Unverified Tesla fee details")
+        dialog.geometry("800x600")
+        dialog.transient(self.window)
+        dialog.grab_set()
+        frame = ttk.Frame(dialog, padding=12)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, wraplength=750, text=(
+            "Source fee entries and tiers, shown locally and unverified. Units and meanings "
+            "are not confirmed; an amount due is not necessarily paid. No fields are filled automatically."
+        )).pack(anchor="w", pady=(0, 8))
+        text = scrolledtext.ScrolledText(frame, wrap="word")
+        text.pack(fill="both", expand=True)
+        text.insert("1.0", self.candidates[selection[0]]["fee_details"])
+        text.configure(state="disabled")
+
+        def close():
+            dialog.destroy()
+            self.window.grab_set()
+
+        dialog.protocol("WM_DELETE_WINDOW", close)
+        ttk.Button(frame, text="Close", command=close).pack(anchor="e", pady=(8, 0))
 
     def save(self):
         selection = self.listbox.curselection()

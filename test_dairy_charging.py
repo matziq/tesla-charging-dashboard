@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from dairy_charging import Dashboard, Ledger, read_candidate_pages, read_candidates, summarize, validate
+from dairy_charging import Dashboard, Ledger, ReviewWindow, read_candidate_pages, read_candidates, summarize, validate
 
 
 def record(**changes):
@@ -135,7 +135,7 @@ class CandidateTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "response.bin"
 
-    def test_reads_only_supported_candidate_details_without_mapping_fees(self):
+    def test_reads_unverified_fee_clues_without_mapping_ledger_values(self):
         self.path.write_text(json.dumps({
             "data": [{"sessionId": 101, "vin": "SYNTHETIC",
                       "siteLocationName": "Sample site",
@@ -149,6 +149,38 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual(rows[0]["siteLocationName"], "Sample site")
         self.assertNotIn("fees", rows[0])
         self.assertNotIn("energy", rows[0])
+        self.assertIn('"totalDue": 42', rows[0]["fee_details"])
+        self.assertIn('"uom": "unknown"', rows[0]["fee_details"])
+
+    def test_preserves_each_fee_and_tier_with_exact_decimal_precision(self):
+        body = ('{"data":[{"sessionId":1,"fees":['
+                '{"feeType":"SYNTHETIC-A","rateBase":0.1234567890123456789,'
+                '"usageTier1":2,"usageTier5":3,"totalDue":9,"isPaid":false},'
+                '{"feeType":"SYNTHETIC-B","rateTier2":0.4,"totalTier2":1}]}],'
+                '"totalResults":1}')
+        self.path.write_text(body, encoding="utf-8")
+        candidate = read_candidates(self.path)[0]
+        self.assertEqual(json.loads(candidate["fee_details"]), json.loads(body)["data"][0]["fees"])
+        for expected in ('0.1234567890123456789', '"SYNTHETIC-A"', '"SYNTHETIC-B"',
+                         '"usageTier1": 2', '"usageTier5": 3', '"rateTier2": 0.4',
+                         '"totalTier2": 1', '"isPaid": false'):
+            self.assertIn(expected, candidate["fee_details"])
+        self.assertNotIn("paid", candidate)
+        self.assertNotIn("rate", candidate)
+
+    def test_missing_null_empty_and_invalid_fees_remain_distinct(self):
+        for fee, expected in ((None, "null"), ([], "[]")):
+            self.path.write_text(json.dumps({"data": [{"sessionId": 1, "fees": fee}], "totalResults": 1}))
+            self.assertEqual(read_candidates(self.path)[0]["fee_details"], expected)
+        self.path.write_text('{"data":[{"sessionId":1}],"totalResults":1}')
+        self.assertEqual(read_candidates(self.path)[0]["fee_details"], "Fee details not provided.")
+        for fee in ("SYNTHETIC-PRIVATE", ["SYNTHETIC-PRIVATE"], [{"amount": float("nan")}],
+                    [{"note": "SYNTHETIC-PRIVATE" * 10000}]):
+            self.path.write_text(json.dumps({"data": [{"sessionId": 1, "fees": fee}], "totalResults": 1}))
+            with self.assertRaises(ValueError) as failure:
+                read_candidates(self.path)
+            self.assertNotIn("SYNTHETIC-PRIVATE", str(failure.exception))
+            self.assertNotIn(str(self.path), str(failure.exception))
 
     def test_rejects_invalid_page_without_disclosing_values(self):
         cases = (
@@ -215,6 +247,23 @@ class CandidateTests(unittest.TestCase):
             Dashboard.open_review(dashboard)
         read.assert_called_once_with(("one", "two"))
         window.assert_called_once_with(dashboard, [{"sessionId": 1}])
+
+    def test_fee_dialog_displays_selected_candidate_without_filling_form(self):
+        review = mock.Mock()
+        review.listbox.curselection.return_value = (1,)
+        review.candidates = [{"fee_details": "first"}, {"fee_details": "second"}]
+        review.variables = mock.MagicMock()
+        with (mock.patch("dairy_charging.tk.Toplevel") as dialog,
+              mock.patch("dairy_charging.ttk.Frame"),
+              mock.patch("dairy_charging.ttk.Label"),
+              mock.patch("dairy_charging.ttk.Button"),
+              mock.patch("dairy_charging.scrolledtext.ScrolledText") as text):
+            ReviewWindow.show_fees(review)
+            text.return_value.insert.assert_called_once_with("1.0", "second")
+            text.return_value.configure.assert_called_once_with(state="disabled")
+            dialog.return_value.protocol.call_args.args[1]()
+        review.window.grab_set.assert_called_once()
+        review.variables.__getitem__.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -37,12 +37,18 @@ pages separately instead. All selected files are checked before the review
 opens, and no records are saved by selecting them.
 
 The selected responses are potentially incomplete pages, not a complete history.
-The review window shows
-the reported vehicle identifier, location and timestamps locally as unverified
-clues. It does not interpret fee data or prefill the ledger. For each dairy
-trip, manually enter and confirm the vehicle, dairy, direction, date, time,
-location and verified kWh; leave optional odometer, trip distance, rate and
-actual payment blank if unknown. If kWh is unknown, do not save until verified.
+The review window shows the reported vehicle identifier, location and timestamps
+locally as unverified clues. Select **View unverified fee details** to inspect
+all source fee entries and tiers for the selected candidate, including any
+additional fee fields, without collapsing them. The displayed JSON is private:
+avoid sharing it. Missing, null and empty fee details remain distinct. Extremely
+large or malformed fee details are rejected rather than silently truncated.
+Nothing is prefilled or calculated: independently verify the field meanings,
+units and whether an amount was actually paid; a total due is not proof of
+payment. For each dairy trip, manually enter and confirm the vehicle, dairy,
+direction, date, time, location and verified kWh; leave optional odometer, trip
+distance, rate and actual payment blank if unknown. If kWh is unknown, do not
+save until verified.
 The confirmation checkbox also asks you to check the ledger for duplicates.
 
 On save, the source session identifier is stored unencrypted in the private
