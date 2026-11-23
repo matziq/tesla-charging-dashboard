@@ -205,6 +205,8 @@ This is a read-only **first-response discovery step**, not an automated refresh:
 it sends one GET with no pagination parameters to the [documented history endpoint](https://developer.tesla.com/docs/fleet-api/endpoints/charging-endpoints)
 on Tesla's [North America/APAC regional host](https://developer.tesla.com/docs/fleet-api/getting-started/regions-countries).
 It does not request further pages, interpret fields, or modify the dashboard.
+The GET includes the JSON content-type header required by Tesla's
+[API conventions](https://developer.tesla.com/docs/fleet-api/getting-started/conventions).
 It refuses redirects and does not print the token or response contents. Non-200
 responses, networking failures, and responses over 10 MiB are not saved.
 

@@ -26,6 +26,15 @@ class Response:
 
 
 class FetchTests(unittest.TestCase):
+    def test_history_get_uses_teslas_required_json_content_type(self):
+        opener = Mock()
+        opener.open.return_value = Response(b"{}")
+        with patch.object(fetch.urllib.request, "build_opener", return_value=opener):
+            fetch.fetch_first_page("synthetic-token")
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.method, "GET")
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+
     def test_saves_first_page_without_printing_token_or_body(self):
         body = b'{"example":"private data"}'
         opener = Mock()

@@ -23,7 +23,11 @@ def fetch_first_page(token):
     if not token or not token.isascii() or any(c.isspace() or ord(c) < 33 or ord(c) == 127 for c in token):
         raise ValueError("Tesla access token must be a valid bearer token")
     request = urllib.request.Request(
-        URL, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        URL, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
         method="GET",
     )
     try:
