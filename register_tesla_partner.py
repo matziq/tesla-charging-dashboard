@@ -169,6 +169,9 @@ def register(token):
         raise ValueError(f"{error}; registration outcome is unconfirmed, check Tesla before retrying") from None
     try:
         key = registered_key(token)
+    except PartnerLookupForbidden:
+        raise ValueError("Registration POST returned HTTP 200, but verification lookup returned HTTP 403; "
+                         "the outcome is unconfirmed, check Tesla before retrying") from None
     except ValueError:
         raise ValueError("Registration POST returned HTTP 200, but verification failed; check Tesla before retrying") from None
     if key is None or not key_matches(key):
@@ -231,15 +234,19 @@ def check_registered_key(token, first_registration):
     return key
 
 
-def main(env_file=None, first_registration=False):
+def main(env_file=None, first_registration=False, verify_only=False):
     try:
-        if (env_file is not None or first_registration) and (
+        if first_registration and verify_only:
+            raise ValueError("Read-only verification cannot be combined with first-registration mode")
+        if (env_file is not None or first_registration or verify_only) and (
             sys.stdin is not sys.__stdin__ or not sys.stdin.isatty() or not sys.stderr.isatty()
         ):
             raise PrivateInputError("a private interactive terminal is required")
         print("Tesla partner helper: diagnostic format v3")
         verify_hosted_key()
         print("Hosted key verified. Confirm the Tesla application allows https://memconfigmgr.org.")
+        if verify_only:
+            print("Read-only verification: request a partner token and look up the key; no registration POST.")
         if env_file is not None:
             print("Credentials will be read from the specified local file.")
         if input("Type CONTINUE to use credentials, or press Enter to cancel: ").strip() != "CONTINUE":
@@ -252,6 +259,14 @@ def main(env_file=None, first_registration=False):
         if not client_id or not client_secret:
             raise ValueError("Client ID and client secret are required")
         token = partner_token(client_id, client_secret)
+        if verify_only:
+            key = registered_key(token)
+            if key is None:
+                raise ValueError("Partner key lookup returned HTTP 404; registration remains unconfirmed")
+            if not key_matches(key):
+                raise ValueError("Tesla's registered key does not match the expected key")
+            print("Tesla returned the expected public key for North America.")
+            return
         key = check_registered_key(token, first_registration)
         if key is not None:
             print("Tesla already has the expected public key registered in North America.")
@@ -287,26 +302,34 @@ def main(env_file=None, first_registration=False):
         register(token)
         print("Tesla's North American partner registration returned the expected public key.")
     except EOFError:
-        raise SystemExit("Registration failed: a private interactive terminal is required") from None
+        operation = "Verification" if verify_only else "Registration"
+        raise SystemExit(f"{operation} failed: a private interactive terminal is required") from None
     except PrivateInputError as error:
-        raise SystemExit(f"Registration failed: {error}") from None
+        operation = "Verification" if verify_only else "Registration"
+        raise SystemExit(f"{operation} failed: {error}") from None
     except (ValueError, OSError) as error:
-        raise SystemExit(f"Registration failed: {error}") from None
+        operation = "Verification" if verify_only else "Registration"
+        raise SystemExit(f"{operation} failed: {error}") from None
     except KeyboardInterrupt:
-        raise SystemExit("Registration canceled") from None
+        raise SystemExit("Verification canceled" if verify_only else "Registration canceled") from None
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
     first_registration = False
+    verify_only = False
     env_file = None
     while args:
         if args[0] == "--first-registration" and not first_registration:
             first_registration = True
             args = args[1:]
+        elif args[0] == "--verify-only" and not verify_only:
+            verify_only = True
+            args = args[1:]
         elif args[0] == "--env-file" and len(args) >= 2 and env_file is None:
             env_file = args[1]
             args = args[2:]
         else:
-            raise SystemExit("Usage: python register_tesla_partner.py [--env-file PATH] [--first-registration]")
-    main(env_file, first_registration)
+            raise SystemExit("Usage: python register_tesla_partner.py [--env-file PATH] "
+                             "[--first-registration | --verify-only]")
+    main(env_file, first_registration, verify_only)

@@ -84,6 +84,15 @@ content-type header required by Tesla's
 Tesla associates a missing header with HTTP 406, so it is not established as
 the cause of a 403.
 
+After an unconfirmed registration outcome, do **not** repeat the registration
+POST. Instead, use `python .\register_tesla_partner.py --verify-only` (add
+`--env-file "D:\path\outside-git\.env"` if needed). In a private terminal,
+confirm credential use when prompted. This requests a partner token and performs
+only the read-only key lookup; it never sends a registration POST or prints the
+returned key. A matching key confirms the lookup returned the expected public
+key. HTTP 403, HTTP 404, malformed responses, and a different key do not
+confirm registration; check Tesla or contact its support before taking action.
+
 For a first registration, an explicit `--first-registration` option is
 available in a private terminal, alongside `--env-file` if needed. This is
 separate from the safer default: if the lookup returns 403 or 404, the

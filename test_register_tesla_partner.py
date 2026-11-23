@@ -160,6 +160,17 @@ class PartnerTests(unittest.TestCase):
             self.assertIn("verification failed", str(failure.exception))
             self.assertNotIn("private detail", str(failure.exception))
 
+    def test_post_success_reports_forbidden_verification_without_body(self):
+        forbidden = partner.PartnerLookupForbidden("private response detail")
+        with patch.object(partner, "request_bytes", return_value=b'{}') as request, \
+             patch.object(partner, "registered_key", side_effect=forbidden):
+            with self.assertRaises(ValueError) as failure:
+                partner.register("token-secret")
+        self.assertEqual(str(failure.exception),
+                         "Registration POST returned HTTP 200, but verification lookup returned HTTP 403; "
+                         "the outcome is unconfirmed, check Tesla before retrying")
+        self.assertEqual(request.call_count, 1)
+
     def test_failed_registration_request_reports_uncertain_outcome(self):
         with patch.object(partner, "request_bytes", side_effect=ValueError("Network error")) as request:
             with self.assertRaisesRegex(ValueError, "outcome is unconfirmed"):
@@ -346,6 +357,105 @@ class PartnerTests(unittest.TestCase):
         stream.read.assert_not_called()
         register.assert_not_called()
         self.assertNotIn("token-secret", output.getvalue())
+
+    def test_read_only_verification_reports_match_without_registration(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner.sys, "stderr", stderr), \
+             patch.object(partner, "verify_hosted_key"), patch("builtins.input", return_value="CONTINUE"), \
+             patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
+             patch.object(partner, "partner_token", return_value="token-secret"), \
+             patch.object(partner, "registered_key", return_value=PEM) as lookup, \
+             patch.object(partner, "KEY_SHA256", FINGERPRINT), \
+             patch.object(partner, "register") as register, contextlib.redirect_stdout(io.StringIO()) as output:
+            partner.main(verify_only=True)
+        lookup.assert_called_once_with("token-secret")
+        register.assert_not_called()
+        self.assertIn("Tesla returned the expected public key", output.getvalue())
+        for secret in ("id-secret", "client-secret", "token-secret", PEM):
+            self.assertNotIn(secret, output.getvalue())
+
+    def test_read_only_verification_handles_unknown_or_wrong_key_safely(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        cases = (
+            (None, "HTTP 404; registration remains unconfirmed"),
+            ("different-secret-key", "registered key does not match"),
+            (partner.PartnerLookupForbidden("Partner key lookup returned HTTP 403"), "HTTP 403"),
+            (ValueError("Partner key lookup response did not contain a recognizable public key"),
+             "did not contain a recognizable public key"),
+        )
+        for result, expected in cases:
+            with self.subTest(expected=expected), \
+                 patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+                 patch.object(partner.sys, "stderr", stderr), \
+                 patch.object(partner, "verify_hosted_key"), patch("builtins.input", return_value="CONTINUE"), \
+                 patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
+                 patch.object(partner, "partner_token", return_value="token-secret"), \
+                 patch.object(partner, "registered_key", side_effect=[result]), \
+                 patch.object(partner, "register") as register, contextlib.redirect_stdout(io.StringIO()) as output:
+                with self.assertRaises(SystemExit) as failure:
+                    partner.main(verify_only=True)
+                self.assertIn(expected, str(failure.exception))
+                for secret in ("id-secret", "client-secret", "token-secret", "different-secret-key"):
+                    self.assertNotIn(secret, str(failure.exception))
+                    self.assertNotIn(secret, output.getvalue())
+                register.assert_not_called()
+
+    def test_read_only_verification_requires_confirmation_and_cannot_combine_modes(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner.sys, "stderr", stderr), \
+             patch.object(partner, "verify_hosted_key") as verify, patch("builtins.input", return_value=""), \
+             patch.object(partner, "partner_token") as token, \
+             patch.object(partner, "register") as register, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "Canceled"):
+                partner.main(verify_only=True)
+            verify.reset_mock()
+            with self.assertRaisesRegex(SystemExit, "cannot be combined"):
+                partner.main(first_registration=True, verify_only=True)
+        verify.assert_not_called()
+        token.assert_not_called()
+        register.assert_not_called()
+
+    def test_read_only_verification_rejects_noninteractive_execution(self):
+        terminal = Mock()
+        terminal.isatty.return_value = False
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner, "verify_hosted_key") as verify, \
+             patch.object(partner, "partner_token") as token:
+            with self.assertRaisesRegex(SystemExit, "private interactive terminal"):
+                partner.main(verify_only=True)
+        verify.assert_not_called()
+        token.assert_not_called()
+
+    def test_read_only_lookup_403_does_not_read_sensitive_response(self):
+        terminal = Mock()
+        terminal.isatty.return_value = True
+        stderr = Mock()
+        stderr.isatty.return_value = True
+        stream = Mock(wraps=io.BytesIO(b'{"error":"private-detail","token":"token-secret"}'))
+        opener = Mock()
+        opener.open.side_effect = urllib.error.HTTPError(partner.LOOKUP_URL, 403, "", {}, stream)
+        with patch.object(partner.sys, "stdin", terminal), patch.object(partner.sys, "__stdin__", terminal), \
+             patch.object(partner.sys, "stderr", stderr), \
+             patch.object(partner, "verify_hosted_key"), patch("builtins.input", return_value="CONTINUE"), \
+             patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
+             patch.object(partner, "partner_token", return_value="token-secret"), \
+             patch.object(partner.urllib.request, "build_opener", return_value=opener), \
+             patch.object(partner, "register") as register, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "Partner key lookup returned HTTP 403"):
+                partner.main(verify_only=True)
+        stream.read.assert_not_called()
+        register.assert_not_called()
 
     def test_explicit_first_registration_requires_risk_attestation(self):
         terminal = Mock()
