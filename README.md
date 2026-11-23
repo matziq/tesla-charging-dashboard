@@ -1,24 +1,28 @@
-# Tesla Charging Dashboard
+# Dairy-trip charging ledger
 
-Static HTML dashboard summarizing Tesla Supercharger usage for **Aurora** & **Cherry Bomb** (Jan–May 2026), including:
+The current dashboard is a local Tkinter application. From this folder, run
+`python .\dairy_charging.py` using Python with Tkinter. It starts with an empty
+ledger at `D:\AI_Output\TeslaChargingDashboard\ledger.sqlite3` on Windows
+(on other systems, `~/.local/share/tesla-charging-dashboard/ledger.sqlite3`).
+The database contains unencrypted personal information: protect the folder
+with appropriate account permissions, keep it out of public or synced folders,
+and back it up privately. It is not stored in the repository or published.
 
-- Total cost / kWh / sessions
-- Work vs. Travel cost split
-- Monthly charging trend
-- Per-vehicle breakdown
-- Route insights (work hubs + long-distance corridors)
-- Charger-frequency heatmap
+Enter vehicle and dairy names locally; previously entered names appear in the
+editable lists. Records represent trips to or from a dairy. Enter local date and
+24-hour time, location, energy in kWh, and optionally odometer miles, trip miles,
+rate in USD/kWh, and actual paid in USD. Blank optional fields mean unknown,
+not zero. The actual paid amount is never calculated from the rate. Select a row
+to correct it, then save; use New / clear to create another. Filters apply exact
+vehicle, dairy and direction matches and inclusive date ranges. Totals include
+only known paid amounts and trip distances and report missing values; odometer
+readings are never summed.
 
-## Live site
-
-🌐 **<https://matziq.github.io/tesla-charging-dashboard/>**
-
-## Source
-
-`index.html` is a static overview with no build step. `Dashboard.html` is a
-separate interactive tax tracker that loads JavaScript and CSS from CDNs.
-
-The underlying export (`tesla_charging_analysis.xlsx`) is intentionally **not** published.
+No Tesla account, import, scheduling, or network access is required. The former
+static proof of concept is retired from the landing page and preserved in Git at
+the `archive-poc-2026-11-23` tag. The old `Dashboard.html` remains directly
+accessible and the prototype tools below remain available; the public landing
+page no longer links to the old dashboard. No existing records were migrated.
 
 ## Private refresh prototype
 
