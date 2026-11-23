@@ -49,6 +49,32 @@ A localhost-only allowed origin cannot satisfy the public HTTPS domain/key
 requirement. Use a public HTTPS domain you control and configure an appropriate
 allowed origin in Tesla's portal; check Tesla's current portal rules.
 
+For this site, the public key is hosted at
+`https://memconfigmgr.org/.well-known/appspecific/com.tesla.3p.public-key.pem`.
+After confirming the application allows `https://memconfigmgr.org`, run
+`python .\register_tesla_partner.py` in your own interactive terminal. The
+helper verifies the hosted key against the P-256 key prepared for this project,
+then asks for confirmation and privately prompts for the application client ID
+and secret. It requests a North American partner token in memory and looks up
+Tesla's registered key. If a different key is registered, it stops without
+replacing it. A 404 lookup is **not proof** that no registration exists: the
+helper warns that a registration POST can change the registered key and requires
+you to type `REGISTER` before it sends that POST. It rechecks immediately before
+the POST and checks Tesla's registered key again before reporting success; Tesla
+does not provide an atomic compare-and-set here, so a concurrent change remains
+possible. Unexpected responses or failures stop the
+process without printing credentials, tokens, or response bodies; if verification
+fails or a POST fails, check Tesla before retrying because the outcome may be unknown.
+
+The helper pins the prepared public key's SHA-256 fingerprint. A key rotation
+requires reviewing and updating that fingerprint before using the helper. Tesla's
+[partner endpoint reference](https://developer.tesla.com/docs/fleet-api/endpoints/partner-endpoints)
+documents the registration and lookup endpoints; its indexed excerpt did not
+show the POST body, so the `{"domain": ...}` shape follows the
+[example in Tesla's vehicle-command repository](https://github.com/teslamotors/vehicle-command/issues/6)
+and a [third-party integration](https://teslasync.dev/guide/tesla-fleet-api.html).
+No live registration has been performed or verified.
+
 The callback is separate from that public application domain. This prototype
 uses the exact redirect URI `http://localhost:8765/callback` and listens only
 on `127.0.0.1:8765`. Register that exact callback in the portal if accepted;
@@ -132,7 +158,7 @@ Verify the actual personal-history response and pagination privately before
 mapping fields or implementing further automation. Never put tokens in the
 repository or publish raw responses.
 
-Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history test_authorize_tesla`.
+Run the local checks with `python -m unittest test_refresh_dashboard test_fetch_charging_history test_authorize_tesla test_register_tesla_partner`.
 
 ## Local preview
 
