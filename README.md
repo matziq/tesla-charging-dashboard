@@ -310,6 +310,35 @@ staged `page-*.bin` files in that folder. Nothing is imported automatically:
 review each candidate, identify the vehicle and dairy trip yourself, verify
 values and units independently, and check manual-entry duplicates before saving.
 
+### Optional noninteractive bounded staging (Windows)
+
+This separate command uses the existing per-user encrypted offline token; it
+does not perform offline setup or install a schedule. First, you must personally
+run the **Optional offline renewal** setup above and consent to `offline_access`
+and the charging-management scope, which also permits charging commands. A
+future scheduled run requires separate explicit approval of its frequency,
+request cap, possible billing and private unencrypted response storage. No
+scheduled task is created by these tools.
+
+For an explicitly authorized one-time run, choose a maximum between 1 and 5
+history GETs and include both acknowledgments. For example, from the standalone
+folder, the following authorizes at most one history GET:
+
+```powershell
+python .\stage_tesla_history_offline.py --max-pages 1 --accept-offline-scope-and-billing --accept-unencrypted-storage-and-unverified-pagination
+```
+
+The command has no prompts. It refreshes the token under the same lock as
+`--renew`, marks the old token pending before exchange, and saves the rotated
+token before any history GET. The lock remains held throughout staging, so
+overlapping offline runs fail rather than race. An uncertain refresh leaves the
+token pending and blocks automatic retries; follow the recovery instructions
+above. A missing access token also stops before a history GET. It uses exactly
+the bounded staging checks, private folder and manual-review workflow described
+above, and never modifies the ledger. Matching totals do not prove a stable
+snapshot or complete history. The offline renewal and history pagination have
+not been verified end-to-end against Tesla.
+
 ### Check saved page structure locally
 
 Double-click `Launch Tesla Page Check.cmd` beside the standalone dashboard, then

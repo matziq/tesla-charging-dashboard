@@ -200,7 +200,7 @@ def offline_setup(store, env_file=None):
         print("Offline authorization saved in Windows per-user encrypted storage.")
 
 
-def renew(store):
+def with_refreshed_access(store, action):
     with store.locked():
         client_id, previous, state = store.read()
         if state != "ready":
@@ -216,8 +216,14 @@ def renew(store):
         except ValueError as error:
             raise ValueError(f"{error}. Refresh outcome may be uncertain; do not retry automatically") from None
         token = access_token(payload)
+        return action(token)
+
+
+def renew(store):
+    def fetch_and_save(token):
         body = fetch_first_page(token)
         print(f"Saved first response for private inspection: {save_response(body)}")
+    return with_refreshed_access(store, fetch_and_save)
 
 
 def main(argv=None):
