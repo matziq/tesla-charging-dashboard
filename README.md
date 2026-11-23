@@ -239,7 +239,10 @@ account compatibility have not been verified against a real Tesla account.
 This separate interactive tool tests the third-party SDK's **unverified**
 `pageNo=1` and `pageNo=2`, `pageSize=25` parameters. From the repository folder,
 run `python .\probe_tesla_pagination.py --env-file "D:\path\outside-git\.env"`
-in your own private terminal, or omit `--env-file` for masked prompts. Type
+in your own private terminal, or omit `--env-file` for masked prompts. When
+installed alongside the standalone dashboard, double-click
+`Launch Pagination Probe.cmd` for masked prompts, or run the adjacent script
+with `--env-file` from a private terminal. Type
 `CONTINUE` to begin authorization, confirm file use separately if applicable,
 then complete Tesla sign-in and consent in your browser. The requested charging
 scope also permits charging commands, although this tool sends none. Immediately
@@ -247,10 +250,12 @@ before the history GETs, review the billing, scope and unencrypted-storage
 warnings and type `FETCH`; press Enter at either gate to cancel. No automatic
 retry or registration POST is performed.
 
-The tool makes at most two read-only requests, saves responses in a new ignored
-`.private\pagination-probe-*` folder, and reports only page counts, whether
-reported totals match, and identifier overlap. The folder is unencrypted and
-inherits local access controls; Git ignore does not prevent other users,
+The tool makes at most two read-only requests, saves responses in a new
+`.private\pagination-probe-*` folder next to the script, and reports only page
+counts, whether reported totals match, and identifier overlap. The folder is unencrypted and
+inherits local access controls. The repository's `.private` folder is ignored
+by Git; the separately installed folder is outside the repository. Neither
+location's access controls are guaranteed, and Git ignore does not prevent other users,
 backups or sync services from seeing it. Protect it and never publish raw
 responses. If a request, save or parsing step fails, the tool stops; any earlier
 saved page remains in the displayed folder. Distinct pages and matching totals

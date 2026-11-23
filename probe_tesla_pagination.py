@@ -67,7 +67,7 @@ def run(env_file=None):
     if input("Type FETCH to make the two requests, or press Enter to cancel: ").strip() != "FETCH":
         raise ValueError("Canceled; no history requests were sent")
     directory = private_directory()
-    print(f"Private response directory: {directory.relative_to(ROOT)}")
+    print(f"Private response directory: {directory}")
     pages = []
     for page in (1, 2):
         try:
