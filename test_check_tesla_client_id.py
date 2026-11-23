@@ -1,5 +1,4 @@
 import contextlib
-import getpass
 import io
 import unittest
 from unittest.mock import patch
@@ -10,7 +9,7 @@ import check_tesla_client_id as check
 class ClientIdCheckTests(unittest.TestCase):
     def run_check(self, entries):
         output = io.StringIO()
-        with patch.object(check.getpass, "getpass", side_effect=entries), \
+        with patch.object(check, "read_masked", side_effect=entries), \
              patch("builtins.open", side_effect=AssertionError("unexpected file access")), \
              patch("socket.socket", side_effect=AssertionError("unexpected network access")), \
              contextlib.redirect_stdout(output):
@@ -54,7 +53,7 @@ class ClientIdCheckTests(unittest.TestCase):
                     self.assertIn("Entries match exactly: no", output)
 
     def test_insecure_terminal_is_rejected_without_printing_input(self):
-        with patch.object(check.getpass, "getpass", side_effect=getpass.GetPassWarning("private text")), \
+        with patch.object(check, "read_masked", side_effect=check.PrivateInputError("a private interactive terminal is required")), \
              contextlib.redirect_stdout(io.StringIO()) as output:
             with self.assertRaises(SystemExit) as failure:
                 check.main()

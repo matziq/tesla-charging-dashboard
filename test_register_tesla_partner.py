@@ -168,7 +168,7 @@ class PartnerTests(unittest.TestCase):
         opener.open.side_effect = urllib.error.HTTPError(partner.TOKEN_URL, 400, "", {}, io.BytesIO(body))
         with patch.object(partner, "verify_hosted_key"), \
              patch("builtins.input", return_value="CONTINUE"), \
-             patch.object(partner.getpass, "getpass", side_effect=["id-secret", "client-secret"]), \
+             patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
              patch.object(partner.urllib.request, "build_opener", return_value=opener), \
              patch.object(partner, "register") as register, \
              contextlib.redirect_stdout(io.StringIO()):
@@ -176,6 +176,16 @@ class PartnerTests(unittest.TestCase):
                 partner.main()
         self.assertEqual(str(failure.exception), "Registration failed: Partner token returned HTTP 400 (OAuth error: invalid_client)")
         register.assert_not_called()
+
+    def test_control_input_stops_before_token_request(self):
+        with patch.object(partner, "verify_hosted_key"), \
+             patch("builtins.input", return_value="CONTINUE"), \
+             patch.object(partner, "read_masked", side_effect=partner.PrivateInputError("Unsupported control character")), \
+             patch.object(partner, "partner_token") as token, \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "Unsupported control character"):
+                partner.main()
+        token.assert_not_called()
 
     def test_error_response_io_failure_is_sanitized(self):
         stream = Mock()
@@ -209,7 +219,7 @@ class PartnerTests(unittest.TestCase):
     def test_existing_different_key_never_registers(self):
         with patch.object(partner, "verify_hosted_key"), \
              patch("builtins.input", return_value="CONTINUE"), \
-             patch.object(partner.getpass, "getpass", side_effect=["id-secret", "client-secret"]), \
+             patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
              patch.object(partner, "partner_token", return_value="token-secret"), \
              patch.object(partner, "registered_key", return_value="different key"), \
              patch.object(partner, "register") as register, \
@@ -221,7 +231,7 @@ class PartnerTests(unittest.TestCase):
     def test_lookup_404_needs_second_explicit_confirmation(self):
         with patch.object(partner, "verify_hosted_key"), \
              patch("builtins.input", side_effect=["CONTINUE", ""]), \
-             patch.object(partner.getpass, "getpass", side_effect=["id-secret", "client-secret"]), \
+             patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
              patch.object(partner, "partner_token", return_value="token-secret"), \
              patch.object(partner, "registered_key", return_value=None), \
              patch.object(partner, "register") as register, \
@@ -234,7 +244,7 @@ class PartnerTests(unittest.TestCase):
         output = io.StringIO()
         with patch.object(partner, "verify_hosted_key") as verify, \
              patch("builtins.input", side_effect=["CONTINUE", "REGISTER"]), \
-             patch.object(partner.getpass, "getpass", side_effect=["id-secret", "client-secret"]), \
+             patch.object(partner, "read_masked", side_effect=["id-secret", "client-secret"]), \
              patch.object(partner, "partner_token", return_value="token-secret"), \
              patch.object(partner, "registered_key", return_value=None), \
              patch.object(partner, "register") as register, \
@@ -248,7 +258,7 @@ class PartnerTests(unittest.TestCase):
     def test_new_registration_between_lookups_is_not_overwritten(self):
         with patch.object(partner, "verify_hosted_key"), \
              patch("builtins.input", side_effect=["CONTINUE", "REGISTER"]), \
-             patch.object(partner.getpass, "getpass", side_effect=["id", "secret"]), \
+             patch.object(partner, "read_masked", side_effect=["id", "secret"]), \
              patch.object(partner, "partner_token", return_value="token"), \
              patch.object(partner, "registered_key", side_effect=[None, "different key"]), \
              patch.object(partner, "register") as register, \
@@ -259,7 +269,7 @@ class PartnerTests(unittest.TestCase):
 
     def test_unverified_hosted_key_stops_before_credentials(self):
         with patch.object(partner, "verify_hosted_key", side_effect=ValueError("key mismatch")), \
-             patch.object(partner.getpass, "getpass") as prompt, \
+             patch.object(partner, "read_masked") as prompt, \
              contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(SystemExit, "key mismatch"):
                 partner.main()

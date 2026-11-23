@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Compare two privately entered client IDs without contacting Tesla."""
 
-import getpass
 import re
 import unicodedata
-import warnings
+
+from masked_input import PrivateInputError, read_masked
 
 
 UUID_SHAPE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -20,12 +20,12 @@ def yes_no(value):
 
 def main():
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", getpass.GetPassWarning)
-            pasted = getpass.getpass("Paste the client ID (hidden): ")
-            typed = getpass.getpass("Type the same client ID manually (hidden): ")
-    except (getpass.GetPassWarning, EOFError, OSError):
+        pasted = read_masked("Paste the client ID (masked): ")
+        typed = read_masked("Type the same client ID manually (masked): ")
+    except (EOFError, OSError):
         raise SystemExit("Check failed: a private interactive terminal is required") from None
+    except PrivateInputError as error:
+        raise SystemExit(f"Check failed: {error}") from None
     except KeyboardInterrupt:
         raise SystemExit("Check canceled") from None
 

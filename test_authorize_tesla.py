@@ -163,8 +163,7 @@ class AuthorizationTests(unittest.TestCase):
 
     def test_main_passes_access_token_directly_to_fetch_without_printing(self):
         stdout = io.StringIO()
-        with patch("builtins.input", return_value="client"), \
-             patch.object(auth.getpass, "getpass", return_value="client-secret"), \
+        with patch.object(auth, "read_masked", side_effect=["client", "client-secret"]), \
              patch.object(auth, "wait_for_code", return_value="code-secret"), \
              patch.object(auth, "exchange_code", return_value="token-secret"), \
              patch.object(auth, "fetch_first_page", return_value=b"private-data") as fetch, \
@@ -175,6 +174,13 @@ class AuthorizationTests(unittest.TestCase):
         save.assert_called_once_with(b"private-data")
         for secret in ("client-secret", "code-secret", "token-secret", "private-data"):
             self.assertNotIn(secret, stdout.getvalue())
+
+    def test_invalid_masked_input_stops_before_authorization(self):
+        with patch.object(auth, "read_masked", side_effect=auth.PrivateInputError("Unsupported control character")), \
+             patch.object(auth, "wait_for_code") as wait:
+            with self.assertRaisesRegex(SystemExit, "Unsupported control character"):
+                auth.main()
+        wait.assert_not_called()
 
 
 if __name__ == "__main__":

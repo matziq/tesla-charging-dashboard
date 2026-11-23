@@ -3,7 +3,6 @@
 
 import base64
 import binascii
-import getpass
 import hashlib
 import hmac
 import http.client
@@ -11,10 +10,10 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-import warnings
 
 from authorize_tesla import AUDIENCE, TOKEN_URL
 from fetch_charging_history import NoRedirect
+from masked_input import PrivateInputError, read_masked
 
 
 DOMAIN = "memconfigmgr.org"
@@ -169,10 +168,8 @@ def main():
         print("Hosted key verified. Confirm the Tesla application allows https://memconfigmgr.org.")
         if input("Type CONTINUE to enter credentials, or press Enter to cancel: ").strip() != "CONTINUE":
             raise ValueError("Canceled; no authenticated request was sent")
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", getpass.GetPassWarning)
-            client_id = getpass.getpass("Tesla application client ID (hidden): ").strip()
-            client_secret = getpass.getpass("Tesla application client secret (hidden): ")
+        client_id = read_masked("Tesla application client ID (masked): ").strip()
+        client_secret = read_masked("Tesla application client secret (masked): ")
         if not client_id or not client_secret:
             raise ValueError("Client ID and client secret are required")
         token = partner_token(client_id, client_secret)
@@ -195,8 +192,10 @@ def main():
             return
         register(token)
         print("Tesla's North American partner registration returned the expected public key.")
-    except (getpass.GetPassWarning, EOFError):
+    except EOFError:
         raise SystemExit("Registration failed: a private interactive terminal is required") from None
+    except PrivateInputError as error:
+        raise SystemExit(f"Registration failed: {error}") from None
     except (ValueError, OSError) as error:
         raise SystemExit(f"Registration failed: {error}") from None
     except KeyboardInterrupt:

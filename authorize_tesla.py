@@ -2,7 +2,6 @@
 """Authorize locally with Tesla and save one private history response."""
 
 import base64
-import getpass
 import hashlib
 import hmac
 import http.client
@@ -13,11 +12,11 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import warnings
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from fetch_charging_history import NoRedirect, fetch_first_page, save_response
+from masked_input import PrivateInputError, read_masked
 
 
 REDIRECT_URI = "http://localhost:8765/callback"
@@ -159,10 +158,8 @@ def exchange_code(client_id, client_secret, code, verifier):
 
 def main():
     try:
-        client_id = input("Tesla application client ID: ").strip()
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", getpass.GetPassWarning)
-            client_secret = getpass.getpass("Tesla application client secret (hidden): ")
+        client_id = read_masked("Tesla application client ID (masked): ").strip()
+        client_secret = read_masked("Tesla application client secret (masked): ")
         if not client_id or not client_secret:
             raise ValueError("Client ID and client secret are required")
         state = secrets.token_urlsafe(32)
@@ -171,8 +168,10 @@ def main():
         token = exchange_code(client_id, client_secret, code, verifier)
         body = fetch_first_page(token)
         print(f"Saved first response for private inspection: {save_response(body)}")
-    except (getpass.GetPassWarning, EOFError):
+    except EOFError:
         raise SystemExit("Authorization failed: a private interactive terminal is required") from None
+    except PrivateInputError as error:
+        raise SystemExit(f"Authorization failed: {error}") from None
     except (ValueError, OSError) as error:
         raise SystemExit(f"Authorization failed: {error}") from None
     except KeyboardInterrupt:
